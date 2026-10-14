@@ -1,0 +1,43 @@
+{{define "layout"}}<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>{{.Title}} · nöbet</title>
+<link rel="stylesheet" href="/static/style.css">
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+</head>
+<body>
+<header class="top">
+  <div class="bar">
+    <a class="brand" href="/"><img src="/static/logo.svg" alt="nöbet" width="105" height="40"></a>
+    <nav>
+      <a href="/"{{if eq .Nav "fleet"}} aria-current="page"{{end}}>Fleet</a>
+      <a href="/changes"{{if eq .Nav "changes"}} aria-current="page"{{end}}>Changes</a>
+      <a href="/root"{{if eq .Nav "root"}} aria-current="page"{{end}}>Root access</a>
+    </nav>
+    <div class="meta">{{if .LastScan.IsZero}}no scans yet{{else}}<span title="{{when .LastScan}}">last scan {{ago .LastScan}}</span>{{end}}</div>
+  </div>
+</header>
+<main>
+{{template "content" .}}
+</main>
+<footer>
+  nöbet {{.Version}} · a read-only view of saved scans: this dashboard never connects to your servers.
+</footer>
+</body>
+</html>
+{{end}}
+
+{{define "changegroups"}}
+{{if not .}}<p class="muted">No changes recorded.</p>{{end}}
+{{range .}}
+<div class="change">
+  <div class="change-head"><a href="{{.Href}}">{{.Host}}</a> <span class="muted" title="{{when .From}} → {{when .To}}">{{ago .To}}</span></div>
+  <ul>
+  {{range .Changes}}<li class="kind-{{.Kind}}"><span class="sign">{{if eq .Kind "added"}}+{{else if eq .Kind "removed"}}−{{else}}~{{end}}</span> <span class="area">{{.Area}}</span> <span class="what">{{.What}}</span></li>{{end}}
+  </ul>
+</div>
+{{end}}
+{{end}}

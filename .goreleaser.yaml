@@ -1,0 +1,124 @@
+# Release builds: run `git tag v0.1.0 && git push --tags` and the release
+# workflow builds binaries, archives, checksums and deb/rpm/apk packages.
+#
+# Two binaries, packaged separately: installing the nobet CLI never brings
+# the nobet-web dashboard along.
+version: 2
+project_name: nobet
+
+before:
+  hooks:
+    - go mod tidy
+    - go test ./...
+
+builds:
+  - id: nobet
+    main: ./cmd/nobet
+    binary: nobet
+    env:
+      - CGO_ENABLED=0
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    ignore:
+      - goos: windows
+        goarch: arm64
+    flags: [-trimpath]
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+
+  # The dashboard runs on a Linux server next to the scan history.
+  - id: nobet-web
+    main: ./cmd/nobet-web
+    binary: nobet-web
+    env:
+      - CGO_ENABLED=0
+    goos: [linux]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+
+archives:
+  - id: nobet
+    ids: [nobet]
+    name_template: "nobet_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files:
+      - README.md
+      - LICENSE
+      - NOTICE
+      - SECURITY.md
+      - allowlist.example
+      - hosts.example
+      - contrib/systemd/nobet-scan.*
+
+  - id: nobet-web
+    ids: [nobet-web]
+    name_template: "nobet-web_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    formats: [tar.gz]
+    files:
+      - README.md
+      - LICENSE
+      - NOTICE
+      - SECURITY.md
+      - contrib/systemd/nobet-web.service
+
+checksum:
+  name_template: checksums.txt
+
+release:
+  # Tags such as v0.1.0-beta.1 are published as GitHub pre-releases.
+  prerelease: auto
+
+nfpms:
+  - id: nobet
+    ids: [nobet]
+    package_name: nobet
+    file_name_template: "{{ .ConventionalFileName }}"
+    homepage: https://github.com/olgacveysel/nobet
+    maintainer: Veysel <olgacveysel@gmail.com>
+    description: |-
+      Agentless security auditing for Linux servers over SSH: SSH and sudo
+      configuration, root access map, pending updates, firewall, SUID files
+      and drift between scans.
+    license: Apache-2.0
+    formats: [deb, rpm, apk]
+    bindir: /usr/bin
+    contents:
+      - src: allowlist.example
+        dst: /usr/share/doc/nobet/allowlist.example
+      - src: hosts.example
+        dst: /usr/share/doc/nobet/hosts.example
+      - src: README.md
+        dst: /usr/share/doc/nobet/README.md
+      - src: contrib/systemd/nobet-scan.service
+        dst: /usr/share/doc/nobet/examples/nobet-scan.service
+      - src: contrib/systemd/nobet-scan.timer
+        dst: /usr/share/doc/nobet/examples/nobet-scan.timer
+
+  - id: nobet-web
+    ids: [nobet-web]
+    package_name: nobet-web
+    file_name_template: "{{ .ConventionalFileName }}"
+    homepage: https://github.com/olgacveysel/nobet
+    maintainer: Veysel <olgacveysel@gmail.com>
+    description: |-
+      Read-only team dashboard over nöbet's scan history: fleet status,
+      changes over time and the root access map. It never scans and holds
+      no SSH keys; run it behind an authenticating reverse proxy.
+    license: Apache-2.0
+    formats: [deb, rpm, apk]
+    bindir: /usr/bin
+    contents:
+      - src: contrib/systemd/nobet-web.service
+        dst: /usr/share/doc/nobet-web/examples/nobet-web.service
+      - src: README.md
+        dst: /usr/share/doc/nobet-web/README.md
+
+changelog:
+  sort: asc
+  filters:
+    exclude: ["^docs:", "^test:", "^chore:"]

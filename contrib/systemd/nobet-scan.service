@@ -1,0 +1,39 @@
+# Scans the fleet and saves the results for `nobet diff` and nobet-web.
+# Runs as the nobet service account, which owns the SSH key; see the
+# "Team dashboard" section of the README for the one-time setup.
+[Unit]
+Description=nöbet security scan
+Documentation=https://github.com/olgacveysel/nobet
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=nobet
+Group=nobet
+Environment=NOBET_DATA_DIR=/var/lib/nobet
+ExecStart=/usr/bin/nobet scan -plain -i /etc/nobet/hosts -allow /etc/nobet/allowlist
+# 1 means findings were reported and 3 that some hosts were unreachable:
+# the scan itself worked and was saved.
+SuccessExitStatus=1 3
+# Group-readable results for nobet-web (the scans directory is 2750).
+UMask=0027
+
+# Hardening: nobet only reads its key and known_hosts, and writes scans.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/nobet/scans
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictRealtime=yes
+SystemCallArchitectures=native
+CapabilityBoundingSet=

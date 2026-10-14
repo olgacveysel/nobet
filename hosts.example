@@ -1,0 +1,5 @@
+# One host per line: [user@]host[:port]
+# Lines starting with # are ignored. The default user is your local username (or -u).
+web01.example.com
+admin@db01.example.com
+deploy@10.0.0.15:2222

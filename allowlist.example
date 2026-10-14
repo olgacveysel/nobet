@@ -1,0 +1,16 @@
+# nöbet allowlist: findings you have reviewed and accept.
+# Copy to ~/.config/nobet/allowlist, or pass with: nobet scan -allow <file>
+#
+# One rule per line:
+#   <check-id>  <host-glob>  [text to match]   # reason
+#
+# check-id   a check such as ACC-002, or * for any check
+# host-glob  shell-style pattern: *, web*, db0[1-3]
+# text       optional; must appear in the finding's title or detail
+#            (case-insensitive)
+# reason     everything after " #"; shown in JSON output
+
+ACC-002  *        nobet-scan      # scanning account needs passwordless sudo
+NET-001  web*     tcp/443         # public web servers
+UPD-002  db01                     # rebooted in the Sunday maintenance window
+*        lab-*                    # lab machines are out of scope

@@ -1,0 +1,46 @@
+# Read-only dashboard over the scans that nobet-scan.service saves.
+# Runs as its own account in the nobet group: it can read the scan history
+# but not the scanner's SSH key, and it never connects to your servers.
+# It has no login: keep it on localhost behind a reverse proxy that
+# authenticates your team.
+[Unit]
+Description=nöbet dashboard (read-only)
+Documentation=https://github.com/olgacveysel/nobet
+After=network.target
+
+[Service]
+User=nobet-web
+Group=nobet-web
+SupplementaryGroups=nobet
+Environment=NOBET_DATA_DIR=/var/lib/nobet
+# Add -user-header with the header your proxy sets for the signed-in user
+# (X-Forwarded-User, Remote-User, ...) to log who viewed what.
+ExecStart=/usr/bin/nobet-web -listen 127.0.0.1:8080
+Restart=on-failure
+
+# Hardening: read-only everywhere, no access to the scanner's key, and
+# only local network traffic (from the reverse proxy).
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+InaccessiblePaths=-/var/lib/nobet/.ssh
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictAddressFamilies=AF_INET AF_INET6
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+CapabilityBoundingSet=
+IPAddressDeny=any
+IPAddressAllow=localhost

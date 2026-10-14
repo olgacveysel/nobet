@@ -1,0 +1,5 @@
+# Keep LF everywhere, also on Windows checkouts: gofmt, the shell collector
+# scripts and the embedded HTML template all expect it.
+* text=auto eol=lf
+*.png binary
+*.ico binary

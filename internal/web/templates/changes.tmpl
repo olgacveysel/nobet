@@ -1,0 +1,9 @@
+{{define "content"}}
+<h1>Changes</h1>
+<p class="sub">What changed between successive scans of each host: routes to root, SSH keys, accounts and passwords, group memberships, SUID files, sshd settings, firewall, ports, updates and findings.</p>
+<p class="filters">Last
+  {{range .Choices}}<a href="/changes?days={{.}}"{{if eq . $.Days}} aria-current="page"{{end}}>{{.}} days</a> {{end}}
+  · {{.Total}} change(s)
+</p>
+{{template "changegroups" .Groups}}
+{{end}}

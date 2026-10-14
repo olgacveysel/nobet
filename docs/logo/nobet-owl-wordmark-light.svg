@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-4 40 594 176" width="594" height="176" fill="none" stroke-linecap="round" stroke-linejoin="round" role="img" aria-label="nöbet">
+  <title>nöbet</title>
+  <g stroke="#0B1426" stroke-width="18">
+    <path d="M15 200 V105 H50 A35 35 0 0 1 85 140 V200"/>
+    <circle cx="180.5" cy="152.5" r="47.5"/>
+    <path d="M276 60 V200 H311 A35 35 0 0 0 346 165 V140 A35 35 0 0 0 311 105 H276"/>
+    <path d="M394 152 H464 V140 A35 35 0 0 0 429 105 A35 35 0 0 0 394 140 V165 A35 35 0 0 0 429 200 H460"/>
+    <path d="M537 60 V165 A35 35 0 0 0 572 200 H578 M512 105 H576"/>
+  </g>
+  <g stroke="#0B1426" stroke-width="8">
+    <circle cx="162" cy="74" r="13"/>
+    <circle cx="199" cy="74" r="13"/>
+    <path d="M151.4 66.5 L147.5 52 L158.6 61.3"/>
+    <path d="M209.6 66.5 L213.5 52 L202.4 61.3"/>
+    <path d="M177 86 L180.5 91 L184 86"/>
+  </g>
+  <g fill="#D9890F">
+    <circle cx="162" cy="74" r="6.5"/>
+    <circle cx="199" cy="74" r="6.5"/>
+  </g>
+</svg>

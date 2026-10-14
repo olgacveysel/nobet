@@ -1,0 +1,47 @@
+{{define "content"}}
+{{if .Empty}}
+<section class="empty">
+  <h1>No scans yet</h1>
+  <p>This dashboard shows the scans saved in <code>{{.HistoryDir}}</code>, and that directory has none.</p>
+  <p>Save scans there with <code>nobet scan -p -history-dir {{.HistoryDir}} -i hosts.txt</code>, or set <code>NOBET_DATA_DIR</code> for the scanning account. The README shows a systemd timer that does this nightly.</p>
+</section>
+{{else}}
+<h1>Fleet</h1>
+<section class="tiles">
+  {{range .Severities}}<div class="tile"><div class="n sev-text-{{.}}">{{index $.Totals .}}</div><div class="l">{{.}}</div></div>{{end}}
+  <div class="tile"><div class="n{{if .Unreachable}} sev-text-critical{{end}}">{{.Unreachable}}</div><div class="l">unreachable</div></div>
+  <div class="tile"><div class="n{{if .Stale}} sev-text-medium{{end}}">{{.Stale}}</div><div class="l">not scanned in {{.StaleAfter}}</div></div>
+</section>
+
+{{with .Trend}}
+<figure class="trend">
+  <svg viewBox="0 0 {{.Width}} {{.Height}}" width="{{.Width}}" height="{{.Height}}" role="img" aria-label="Active findings per day across the fleet">
+  {{range .Bars}}<g><title>{{.Label}}</title>{{range .Segs}}<rect class="fill-{{.Sev}}" x="{{.X}}" y="{{.Y}}" width="{{.W}}" height="{{.H}}"/>{{end}}</g>{{end}}
+  </svg>
+  <figcaption>Active findings across the fleet per day, last {{.Days}} day(s): <span class="swatch fill-critical"></span> critical <span class="swatch fill-high"></span> high <span class="swatch fill-medium"></span> medium <span class="swatch fill-low"></span> low</figcaption>
+</figure>
+{{end}}
+
+<div class="wrap">
+<table class="hosts">
+  <thead><tr><th>Host</th><th>Status</th><th>OS</th><th>Last scan</th>{{range .Severities}}<th class="num">{{.}}</th>{{end}}<th class="num">allowlisted</th></tr></thead>
+  <tbody>
+  {{range .Rows}}
+  <tr>
+    <td><a href="{{.Href}}">{{.Name}}</a>{{if not .Privileged}}{{if not .LastOK.IsZero}} <span class="tag" title="scanned without root or passwordless sudo: some checks were skipped">partial</span>{{end}}{{end}}</td>
+    <td><span class="chip chip-{{.Status}}">{{if eq .Status "never"}}never scanned{{else if eq .Status "error"}}unreachable{{else}}{{.Status}}{{end}}</span></td>
+    <td>{{.OS}}</td>
+    <td><span title="{{when .Last}}"{{if .Stale}} class="stale"{{end}}>{{ago .Last}}</span></td>
+    {{$c := .Counts}}{{range $.Severities}}<td class="num{{if index $c .}} sev-text-{{.}}{{end}}">{{index $c .}}</td>{{end}}
+    <td class="num muted">{{.Allowlisted}}</td>
+  </tr>
+  {{end}}
+  </tbody>
+</table>
+</div>
+
+<h2>Recent changes</h2>
+{{template "changegroups" .Recent}}
+<p><a href="/changes">All changes →</a></p>
+{{end}}
+{{end}}

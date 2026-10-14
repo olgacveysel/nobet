@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>nöbet security report · {{.Meta.Generated.Format "2006-01-02 15:04"}}</title>
+<style>
+  :root {
+    --ink: #0B1426; --muted: #5b6577; --line: #e3e1da; --paper: #fbfaf7; --card: #ffffff;
+    --amber: #D9890F; --critical: #b3261e; --high: #d1541b; --medium: #b7791f; --low: #2f6fb5; --info: #6b7280; --ok: #2e7d4f;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--paper); color: var(--ink);
+         font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+  main { max-width: 1040px; margin: 0 auto; padding: 32px 24px 64px; }
+  header { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; flex-wrap: wrap;
+           border-bottom: 2px solid var(--ink); padding-bottom: 16px; margin-bottom: 24px; }
+  header svg { width: 220px; height: auto; display: block; }
+  header .meta { color: var(--muted); font-size: 13px; text-align: right; }
+  h2 { font-size: 20px; margin: 40px 0 12px; }
+  h3 { font-size: 17px; margin: 0; }
+  code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 12px; }
+  .tile { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+  .tile .n { font-size: 26px; font-weight: 700; }
+  .tile .l { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+  .sev { display: inline-block; min-width: 72px; text-align: center; border-radius: 999px; padding: 1px 10px;
+         font-size: 11px; font-weight: 700; letter-spacing: .04em; color: #fff; }
+  .s-critical { background: var(--critical); } .s-high { background: var(--high); } .s-medium { background: var(--medium); }
+  .s-low { background: var(--low); } .s-info { background: var(--info); } .s-ok { background: var(--ok); } .s-error { background: var(--ink); }
+  .c-critical { color: var(--critical); } .c-high { color: var(--high); } .c-medium { color: var(--medium); } .c-low { color: var(--low); }
+  table { width: 100%; border-collapse: collapse; background: var(--card); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); background: #f4f2ec; }
+  tr:last-child td { border-bottom: 0; }
+  .wrap { overflow-x: auto; }
+  .host { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; margin: 16px 0; break-inside: avoid-page; }
+  .host .sub { color: var(--muted); font-size: 13px; margin: 2px 0 10px; }
+  .finding { border-top: 1px solid var(--line); padding: 10px 0; }
+  .finding:first-of-type { border-top: 0; }
+  .finding .title { font-weight: 600; }
+  .finding .detail { margin: 4px 0 0; word-break: break-word; }
+  .finding .fix { margin: 4px 0 0; color: var(--ok); }
+  .note { color: var(--muted); font-size: 13px; margin: 6px 0 0; }
+  .error { color: var(--critical); font-weight: 600; }
+  .key { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px 16px; margin: 12px 0; break-inside: avoid-page; }
+  .key .fp { word-break: break-all; }
+  footer { margin-top: 48px; color: var(--muted); font-size: 12px; border-top: 1px solid var(--line); padding-top: 12px; }
+  @media print {
+    body { background: #fff; font-size: 12px; }
+    main { padding: 0; max-width: none; }
+    .host, .key, .tile, table { border-color: #ccc; }
+    a { color: inherit; text-decoration: none; }
+  }
+</style>
+</head>
+<body>
+<main>
+<header>
+  {{.Logo}}
+  <div class="meta">
+    Security report · generated {{.Meta.Generated.Format "2006-01-02 15:04 MST"}}<br>
+    {{len .Hosts}} host(s){{if .Failed}} · {{.Failed}} unreachable{{end}}{{if .Allowed}} · {{.Allowed}} finding(s) allowlisted{{end}}<br>
+    nobet {{.Meta.Version}}
+  </div>
+</header>
+
+<section>
+  <div class="tiles">
+    {{range .Severity}}<div class="tile"><div class="n c-{{.}}">{{index $.Totals .}}</div><div class="l">{{.}}</div></div>{{end}}
+  </div>
+</section>
+
+<h2>Hosts</h2>
+<div class="wrap">
+<table>
+  <thead><tr><th>Host</th><th>Status</th><th>OS</th><th>Critical</th><th>High</th><th>Medium</th><th>Low</th><th>Info</th></tr></thead>
+  <tbody>
+  {{range .Hosts}}
+    <tr>
+      <td><a href="#host-{{.Host}}">{{.Host}}</a>{{if .Local}} <span class="note">(local)</span>{{end}}</td>
+      <td><span class="sev s-{{.Worst}}">{{upper .Worst}}</span></td>
+      <td>{{.OS}}</td>
+      <td>{{index .Counts "critical"}}</td><td>{{index .Counts "high"}}</td><td>{{index .Counts "medium"}}</td>
+      <td>{{index .Counts "low"}}</td><td>{{index .Counts "info"}}</td>
+    </tr>
+  {{end}}
+  </tbody>
+</table>
+</div>
+
+<h2>Findings by host</h2>
+{{range .Hosts}}
+<section class="host" id="host-{{.Host}}">
+  <h3>{{.Host}} <span class="sev s-{{.Worst}}">{{upper .Worst}}</span></h3>
+  {{if not .Error}}<div class="sub">{{if .OS}}{{.OS}} · {{end}}{{if .Privileged}}scanned with root privileges{{else}}scanned without root: some checks skipped{{end}}</div>{{end}}
+  {{if .Error}}<p class="error">Could not scan: {{.Error}}</p>{{end}}
+  {{if and (not .Error) (not .Findings)}}<p>No findings.</p>{{end}}
+  {{range .Findings}}
+  <div class="finding">
+    <div><span class="sev s-{{sev .Severity}}">{{upper (sev .Severity)}}</span> <code>{{.CheckID}}</code> <span class="title">{{.Title}}</span></div>
+    {{if .Detail}}<p class="detail mono">{{.Detail}}</p>{{end}}
+    {{if .Fix}}<p class="fix">Fix: {{.Fix}}</p>{{end}}
+  </div>
+  {{end}}
+  {{if .Suppressed}}
+  <p class="note"><b>Allowlisted ({{len .Suppressed}}):</b></p>
+  <ul class="note">{{range .Suppressed}}<li><code>{{.CheckID}}</code> {{.Title}}{{if .Reason}} — <i>{{.Reason}}</i>{{end}} <span class="mono">({{.Rule}})</span></li>{{end}}</ul>
+  {{end}}
+  {{if .Skipped}}
+  <p class="note"><b>Skipped checks:</b> {{range $i, $s := .Skipped}}{{if $i}}; {{end}}<code>{{$s.CheckID}}</code> {{$s.Reason}}{{end}}</p>
+  {{end}}
+</section>
+{{end}}
+
+{{if .HasRoot}}
+<h2>Root access map</h2>
+<p class="note">Who can become root on which host, grouped by SSH key. Routes: direct UID 0 login (respecting PermitRootLogin), <code>sudo ALL</code> as resolved by sudo, and root-equivalent groups (docker, lxd, incus).</p>
+{{if not .Root.Keys}}<p>No SSH key leads to root on the scanned hosts.</p>{{end}}
+{{range .Root.Keys}}
+<div class="key">
+  <div class="fp mono"><b>{{.Fingerprint}}</b> · {{.Type}}{{range .Comments}} · {{.}}{{end}}</div>
+  <div class="note">root on {{.Hosts}} host(s)</div>
+  <table>
+    <thead><tr><th>Host</th><th>As user</th><th>Route to root</th><th>Key restrictions</th></tr></thead>
+    <tbody>{{range .Grants}}<tr><td>{{.Host}}</td><td><code>{{.User}}</code></td><td>{{range $i, $r := .Routes}}{{if $i}}; {{end}}{{$r.Via}}{{end}}</td><td>{{.Restricted}}</td></tr>{{end}}</tbody>
+  </table>
+</div>
+{{end}}
+{{if .Root.KeylessUsers}}
+<h3 style="margin-top:24px">Root-capable accounts without SSH key access</h3>
+<div class="wrap"><table>
+  <thead><tr><th>Host</th><th>Account</th><th>Route to root</th></tr></thead>
+  <tbody>{{range .Root.KeylessUsers}}<tr><td>{{.Host}}</td><td><code>{{.User}}</code></td><td>{{range $i, $r := .Routes}}{{if $i}}; {{end}}{{$r.Via}}{{end}}</td></tr>{{end}}</tbody>
+</table></div>
+{{end}}
+{{if .Root.Gaps}}
+<h3 style="margin-top:24px">Incomplete data</h3>
+<ul class="note">{{range .Root.Gaps}}<li><b>{{.Host}}</b>: {{.Reason}}</li>{{end}}</ul>
+{{end}}
+{{end}}
+
+<footer>
+  Generated by nöbet — your servers' night watch. Read-only audit: no changes were made to the scanned hosts.
+  Findings reflect the state at scan time.
+</footer>
+</main>
+</body>
+</html>

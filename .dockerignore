@@ -1,0 +1,8 @@
+# Keep keys, host lists and build output out of the image build context.
+.git
+config
+secrets
+dist
+nobet
+nobet-web
+*.exe

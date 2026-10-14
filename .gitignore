@@ -1,0 +1,8 @@
+/nobet
+/nobet.exe
+/nobet-web
+/nobet-web.exe
+/dist/
+# Docker Compose deployment: host lists and the scanning key
+/config/
+/secrets/

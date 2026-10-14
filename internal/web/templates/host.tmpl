@@ -1,0 +1,54 @@
+{{define "content"}}
+<p class="crumbs"><a href="/">Fleet</a> /</p>
+<h1>{{.Row.Name}} <span class="chip chip-{{.Row.Status}}">{{if eq .Row.Status "never"}}never scanned{{else if eq .Row.Status "error"}}unreachable{{else}}{{.Row.Status}}{{end}}</span></h1>
+<p class="sub">
+  {{if .Row.OS}}{{.Row.OS}} · {{end}}
+  {{if .Scanned}}scanned <span title="{{when .ScanTime}}">{{ago .ScanTime}}</span>{{if .Row.Privileged}} with root privileges{{else}} without root: some checks were skipped{{end}}{{end}}
+</p>
+
+{{if .Row.Error}}
+<div class="notice notice-error">
+  <b>The newest scan ({{when .Row.Last}}) failed:</b> {{.Row.Error}}
+  {{if .Scanned}}<br>Below is the last successful scan, from {{when .ScanTime}}.{{end}}
+</div>
+{{else if .Row.Stale}}
+<div class="notice">No successful scan for a while: these results may be out of date.</div>
+{{end}}
+
+{{if .Scanned}}
+<h2>Findings</h2>
+{{if not .Findings}}<p class="ok">No findings.</p>{{end}}
+{{range .Findings}}
+<div class="finding">
+  <div><span class="chip chip-{{.Severity}}">{{upper .Severity}}</span> <code>{{.CheckID}}</code> <span class="title">{{.Title}}</span></div>
+  {{if .Detail}}<p class="detail">{{.Detail}}</p>{{end}}
+  {{if .Fix}}<p class="fix">Fix: {{.Fix}}</p>{{end}}
+</div>
+{{end}}
+
+{{if .Allowed}}
+<h3>Allowlisted ({{len .Allowed}})</h3>
+<ul class="plain">{{range .Allowed}}<li><code>{{.CheckID}}</code> {{.Title}}{{if .Reason}} — <i>{{.Reason}}</i>{{end}} <span class="muted">({{.Rule}})</span></li>{{end}}</ul>
+{{end}}
+
+{{if .Skipped}}
+<h3>Skipped checks</h3>
+<ul class="plain muted">{{range .Skipped}}<li><code>{{.CheckID}}</code> {{.Reason}}</li>{{end}}</ul>
+{{end}}
+
+<h2>Changes</h2>
+{{template "changegroups" .Changes}}
+
+<h2>Scan history</h2>
+<div class="wrap">
+<table>
+  <thead><tr><th>Scanned</th>{{range .Severities}}<th class="num">{{.}}</th>{{end}}<th class="num">allowlisted</th><th>Privileged</th></tr></thead>
+  <tbody>
+  {{range .History}}{{$c := .Counts}}
+  <tr><td title="{{when .Time}}">{{when .Time}}</td>{{range $.Severities}}<td class="num{{if index $c .}} sev-text-{{.}}{{end}}">{{index $c .}}</td>{{end}}<td class="num muted">{{.Allowlisted}}</td><td>{{if .Privileged}}yes{{else}}no{{end}}</td></tr>
+  {{end}}
+  </tbody>
+</table>
+</div>
+{{end}}
+{{end}}
