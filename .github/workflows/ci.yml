@@ -1,7 +1,7 @@
 name: ci
 on:
   push:
-    branches: [main]
+    branches: [master]
   pull_request:
   workflow_dispatch:
 
@@ -38,7 +38,7 @@ jobs:
           version: "~> v2"
           args: check
 
-  # Test packages from every push to main: .deb, .rpm and .apk files
+  # Test packages from every push to master: .deb, .rpm and .apk files
   # under the run's artifacts, without tagging a release.
   packages:
     runs-on: ubuntu-latest

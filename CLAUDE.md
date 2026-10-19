@@ -72,11 +72,14 @@ Decided by the maintainer on 2026-10-14:
 ## Release
 
 - Module `github.com/olgacveysel/nobet`; `.goreleaser.yaml` has homepage and maintainer (Veysel <olgacveysel@gmail.com>). `goreleaser check` and a snapshot release pass.
-- Not yet a git repository. To release: create the GitHub repo, push, then `git tag v0.1.0 && git push --tags`; the release workflow does the rest. CHANGELOG.md has the notes.
+- Repo github.com/olgacveysel/nobet, default branch `master`. CI runs on pushes to `master`, pull requests and manual dispatch (`gh workflow run ci`); every push to `master` also uploads test packages (the `packages` artifact, kept 14 days).
+- To release: date the CHANGELOG entry, then `git tag -a vX.Y.Z -m vX.Y.Z && git push origin vX.Y.Z`; the release workflow does the rest. A tag with a suffix (`-beta.1`, `-rc.1`) becomes a pre-release.
+- Pre-release packages are versioned `0.1.0~beta.1` so they sort before `0.1.0` and upgrade cleanly; GitHub shows the `~` as `.` in asset names.
+- v0.1.0-beta.1 was released on 2026-10-14. CI never ran for it: the workflow listened on `main` until 2026-10-19.
 
 ## Roadmap (next)
 
-- Beta: create the GitHub repo, get CI green, tag v0.1.0-beta.1 (goreleaser marks it a pre-release); test on real servers (firewalls, /boot kernels and real package states never appear in the container lab)
+- v0.1.0: get CI green on `master`; test the beta on real servers (firewalls, /boot kernels and real package states never appear in the container lab); fix what turns up, then tag v0.1.0
 - Publish container images to GHCR from the release workflow (compose builds locally for now)
 - Sign release artifacts (cosign) and publish an SBOM
 - nobet-web v2: OIDC login, read-only role, audit log of who viewed what (see design decisions)
