@@ -1,8 +1,8 @@
 # Read-only dashboard over the scans that nobet-scan.service saves.
 # Runs as its own account in the nobet group: it can read the scan history
 # but not the scanner's SSH key, and it never connects to your servers.
-# It has no login: keep it on localhost behind a reverse proxy that
-# authenticates your team.
+# Keep it on localhost behind a reverse proxy that authenticates your team,
+# or let it sign users in with your OpenID Connect provider (below).
 [Unit]
 Description=nöbet dashboard (read-only)
 Documentation=https://github.com/olgacveysel/nobet
@@ -17,6 +17,20 @@ Environment=NOBET_DATA_DIR=/var/lib/nobet
 # (X-Forwarded-User, Remote-User, ...) to log who viewed what.
 ExecStart=/usr/bin/nobet-web -listen 127.0.0.1:8080
 Restart=on-failure
+# The audit log (-audit-log /var/log/nobet-web/audit.jsonl) goes here.
+LogsDirectory=nobet-web
+LogsDirectoryMode=0750
+
+# Built-in sign-in instead of a proxy (README, "Sign-in"). nobet-web then
+# talks to your identity provider, so allow its address below (or drop the
+# two IPAddress lines). For example, with `systemctl edit nobet-web`:
+#   [Service]
+#   ExecStart=
+#   ExecStart=/usr/bin/nobet-web -listen 127.0.0.1:8080 -public-url https://nobet.example.com \
+#     -oidc-issuer https://login.example.com/realms/ops -oidc-client-id nobet \
+#     -oidc-client-secret-file /etc/nobet/oidc-secret -allow-groups nobet-viewers \
+#     -session-key-file /etc/nobet/session-key -audit-log /var/log/nobet-web/audit.jsonl
+#   IPAddressAllow=192.0.2.10
 
 # Hardening: read-only everywhere, no access to the scanner's key, and
 # only local network traffic (from the reverse proxy).

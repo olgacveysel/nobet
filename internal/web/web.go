@@ -2,15 +2,18 @@
 // that `nobet scan` saves. It never scans, never connects to servers and
 // never holds SSH credentials; scans run elsewhere (for example from a
 // systemd timer under a service account) and write to a history directory
-// that this only reads. It has no login of its own: it listens on
-// localhost and is meant to sit behind a reverse proxy that authenticates.
+// that this only reads. Access control is either a reverse proxy that
+// authenticates (nobet-web then listens on localhost), or built-in OpenID
+// Connect login (see OIDCConfig); an audit log can record who viewed what.
 package web
 
 import (
 	"bytes"
+	"context"
 	"embed"
 	"fmt"
 	"html/template"
+	"io"
 	"io/fs"
 	"log"
 	"net/http"
@@ -37,6 +40,8 @@ type Options struct {
 	UserHeader string        // header an authenticating proxy sets to the user name; logged only
 	KeysFile   string        // names the owners of SSH keys on the root page; read on each view, "" for none
 	Metrics    bool          // serve /metrics in the Prometheus text format
+	Auth       *OIDCConfig   // built-in login; nil leaves access control to a reverse proxy
+	Audit      io.Writer     // JSON lines: every page view and sign-in, with the user; nil for none
 	Log        *log.Logger   // request log; nil for none
 	Now        func() time.Time
 }
@@ -45,6 +50,9 @@ type Options struct {
 type Server struct {
 	opts  Options
 	pages map[string]*template.Template
+	auth  *auth // nil without built-in login
+
+	auditMu sync.Mutex
 
 	mu  sync.Mutex
 	sig string
@@ -60,6 +68,15 @@ func New(opts Options) (*Server, error) {
 		opts.StaleAfter = 48 * time.Hour
 	}
 	s := &Server{opts: opts, pages: map[string]*template.Template{}}
+	if opts.Auth != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		a, err := newAuth(ctx, *opts.Auth)
+		if err != nil {
+			return nil, err
+		}
+		s.auth = a
+	}
 	funcs := template.FuncMap{
 		"ago":    func(t time.Time) string { return ago(opts.Now(), t) },
 		"when":   func(t time.Time) string { return t.UTC().Format("2006-01-02 15:04 UTC") },
@@ -89,6 +106,11 @@ func (s *Server) Handler() http.Handler {
 	if s.opts.Metrics {
 		mux.HandleFunc("GET /metrics", s.handleMetrics)
 	}
+	if s.auth != nil {
+		mux.HandleFunc("GET /auth/login", s.handleLogin)
+		mux.HandleFunc("GET /auth/callback", s.handleCallback)
+		mux.HandleFunc("GET /auth/logout", s.handleLogout)
+	}
 	assets := http.StripPrefix("/static/", http.FileServerFS(static))
 	mux.HandleFunc("GET /static/{file}", func(w http.ResponseWriter, r *http.Request) {
 		// Styles and logos hold nothing sensitive, unlike the pages.
@@ -98,7 +120,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /favicon.ico", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/static/favicon.svg", http.StatusMovedPermanently)
 	})
-	return s.secure(s.logged(mux))
+	return s.secure(s.logged(s.authorized(s.audited(mux))))
 }
 
 // page holds what every page shows.
@@ -107,10 +129,12 @@ type page struct {
 	Nav      string
 	Version  string
 	LastScan time.Time
+	User     string // who is viewing, when known
+	SignOut  bool   // built-in login: offer to sign out
 }
 
-func (s *Server) page(ix *index, title, nav string) page {
-	return page{Title: title, Nav: nav, Version: s.opts.Version, LastScan: ix.lastScan}
+func (s *Server) page(r *http.Request, ix *index, title, nav string) page {
+	return page{Title: title, Nav: nav, Version: s.opts.Version, LastScan: ix.lastScan, User: s.viewer(r), SignOut: s.auth != nil}
 }
 
 // load returns the index for the current history directory, rebuilding it
@@ -175,13 +199,13 @@ type fleetPage struct {
 }
 
 func (s *Server) handleFleet(w http.ResponseWriter, r *http.Request) {
-	ix, ok := s.index(w)
+	ix, ok := s.index(w, r)
 	if !ok {
 		return
 	}
 	now := s.opts.Now()
 	p := fleetPage{
-		page:       s.page(ix, "Fleet", "fleet"),
+		page:       s.page(r, ix, "Fleet", "fleet"),
 		Empty:      len(ix.hosts) == 0,
 		HistoryDir: s.opts.HistoryDir,
 		Severities: severities[:4],
@@ -227,17 +251,17 @@ type hostFinding struct {
 }
 
 func (s *Server) handleHost(w http.ResponseWriter, r *http.Request) {
-	ix, ok := s.index(w)
+	ix, ok := s.index(w, r)
 	if !ok {
 		return
 	}
 	name := r.PathValue("name")
 	if _, known := ix.latest[name]; !known {
-		s.message(w, http.StatusNotFound, "Unknown host", "There is no saved scan for "+name+".")
+		s.message(w, r, http.StatusNotFound, "Unknown host", "There is no saved scan for "+name+".")
 		return
 	}
 	p := hostPage{
-		page:       s.page(ix, name, "fleet"),
+		page:       s.page(r, ix, name, "fleet"),
 		Row:        ix.row(name, s.opts.Now(), s.opts.StaleAfter),
 		Severities: severities,
 	}
@@ -271,7 +295,7 @@ type changesPage struct {
 }
 
 func (s *Server) handleChanges(w http.ResponseWriter, r *http.Request) {
-	ix, ok := s.index(w)
+	ix, ok := s.index(w, r)
 	if !ok {
 		return
 	}
@@ -279,7 +303,7 @@ func (s *Server) handleChanges(w http.ResponseWriter, r *http.Request) {
 	if v, err := strconv.Atoi(r.URL.Query().Get("days")); err == nil && v >= 1 && v <= 366 {
 		days = v
 	}
-	p := changesPage{page: s.page(ix, "Changes", "changes"), Days: days, Choices: []int{7, 30, 90, 365}}
+	p := changesPage{page: s.page(r, ix, "Changes", "changes"), Days: days, Choices: []int{7, 30, 90, 365}}
 	since := s.opts.Now().Add(-time.Duration(days) * 24 * time.Hour)
 	for _, g := range ix.groups {
 		if g.To.Before(since) {
@@ -300,11 +324,11 @@ type rootPage struct {
 }
 
 func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
-	ix, ok := s.index(w)
+	ix, ok := s.index(w, r)
 	if !ok {
 		return
 	}
-	s.render(w, http.StatusOK, "root", rootPage{page: s.page(ix, "Root access", "root"), Map: s.rootMap(ix), Empty: len(ix.hosts) == 0})
+	s.render(w, http.StatusOK, "root", rootPage{page: s.page(r, ix, "Root access", "root"), Map: s.rootMap(ix), Empty: len(ix.hosts) == 0})
 }
 
 // rootMap builds the access map with key owners from the keys file, which
@@ -322,13 +346,13 @@ func (s *Server) rootMap(ix *index) rootmap.Map {
 }
 
 // index loads the history, answering with an error page when it cannot.
-func (s *Server) index(w http.ResponseWriter) (*index, bool) {
+func (s *Server) index(w http.ResponseWriter, r *http.Request) (*index, bool) {
 	ix, err := s.load()
 	if err != nil {
 		if s.opts.Log != nil {
 			s.opts.Log.Printf("reading scan history: %v", err)
 		}
-		s.message(w, http.StatusInternalServerError, "Scan history unavailable",
+		s.message(w, r, http.StatusInternalServerError, "Scan history unavailable",
 			"nobet-web could not read the scan history directory. Check that it exists and that this service may read it; the server log has details.")
 		return nil, false
 	}
@@ -337,11 +361,20 @@ func (s *Server) index(w http.ResponseWriter) (*index, bool) {
 
 type messagePage struct {
 	page
-	Text string
+	Text           string
+	Link, LinkText string // where to go next; the fleet when empty
 }
 
-func (s *Server) message(w http.ResponseWriter, status int, title, text string) {
-	s.render(w, status, "message", messagePage{page: page{Title: title, Version: s.opts.Version}, Text: text})
+func (s *Server) message(w http.ResponseWriter, r *http.Request, status int, title, text string) {
+	s.messageFor(w, s.viewer(r), status, title, text, "", "")
+}
+
+// messageFor shows a message to user (who may be ""), with a link onward.
+func (s *Server) messageFor(w http.ResponseWriter, user string, status int, title, text, link, linkText string) {
+	s.render(w, status, "message", messagePage{
+		page: page{Title: title, Version: s.opts.Version, User: user, SignOut: s.auth != nil && user != ""},
+		Text: text, Link: link, LinkText: linkText,
+	})
 }
 
 // render executes a page into a buffer first, so a template error never
@@ -384,8 +417,8 @@ func (w *statusWriter) WriteHeader(code int) {
 	w.ResponseWriter.WriteHeader(code)
 }
 
-// logged writes one line per request, with the user name the
-// authenticating proxy reported when UserHeader is set.
+// logged writes one line per request, with the user: the signed-in one, or
+// the one the authenticating proxy reported when UserHeader is set.
 func (s *Server) logged(next http.Handler) http.Handler {
 	if s.opts.Log == nil {
 		return next
@@ -395,12 +428,10 @@ func (s *Server) logged(next http.Handler) http.Handler {
 		sw := &statusWriter{ResponseWriter: w, status: http.StatusOK}
 		next.ServeHTTP(sw, r)
 		user := ""
-		if s.opts.UserHeader != "" {
-			if u := r.Header.Get(s.opts.UserHeader); u != "" {
-				user = " user=" + strconv.Quote(u)
-			}
+		if u := s.viewer(r); u != "" {
+			user = " user=" + strconv.Quote(u)
 		}
-		s.opts.Log.Printf("%s %s %d %s remote=%s%s", r.Method, r.URL.RequestURI(), sw.status,
+		s.opts.Log.Printf("%s %s %d %s remote=%s%s", r.Method, logURI(r), sw.status,
 			time.Since(start).Round(time.Millisecond), r.RemoteAddr, user)
 	})
 }

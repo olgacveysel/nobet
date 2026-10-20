@@ -173,7 +173,7 @@ For complete remote results, the SSH user should be root or have passwordless su
 
 **It is read-only by design.** It never scans, never connects to your servers and holds no SSH keys (its build is tested to contain no SSH client at all). A systemd timer runs `nobet scan` under a service account and saves to a shared history directory, which the dashboard only reads. If the dashboard were compromised, an attacker would learn your weaknesses but could not act on them.
 
-**It has no login of its own.** It listens on `127.0.0.1:8080` and belongs behind a reverse proxy that authenticates your team (oauth2-proxy, Authelia, Authentik, Pomerium or your SSO). If the proxy passes the signed-in user in a header, add `-user-header X-Forwarded-User` (or `Remote-User`, ...) to log who viewed which page. `-keys /etc/nobet/keys` names key owners on the root access page (the file is read on every view). The root access map shows which key opens which server, so never expose the dashboard directly.
+**Access control comes first.** By default it listens on `127.0.0.1:8080` and belongs behind a reverse proxy that authenticates your team (oauth2-proxy, Authelia, Authentik, Pomerium or your SSO). If the proxy passes the signed-in user in a header, add `-user-header X-Forwarded-User` (or `Remote-User`, ...) to log who viewed which page. `-keys /etc/nobet/keys` names key owners on the root access page (the file is read on every view). The root access map shows which key opens which server, so never expose the dashboard directly.
 
 Setup on the machine that scans (the units are in `contrib/systemd`; the packages also install them under `/usr/share/doc/nobet*/examples`):
 
@@ -207,6 +207,27 @@ sudo systemctl start nobet-scan.service   # the first scan now rather than tonig
 ```
 
 Both units are hardened (`systemd-analyze security` rates the dashboard 1.3 and the scanner 3.4, where 10 is unconfined); the dashboard cannot read `/var/lib/nobet/.ssh` and only accepts local connections. Hosts without a successful scan for 48 hours are flagged (`-stale`).
+
+#### Sign-in
+
+Instead of a reverse proxy, nobet-web can sign people in with your OpenID Connect provider (Keycloak, Authentik, Entra ID, Google, Okta, Dex, ...). Everyone who signs in gets the same read-only view; who may sign in is your choice, and nobody may by default:
+
+```bash
+head -c 32 /dev/urandom > /etc/nobet/session-key      # keeps sessions across restarts
+nobet-web -listen 127.0.0.1:8080 -public-url https://nobet.example.com \
+  -oidc-issuer https://login.example.com/realms/ops -oidc-client-id nobet \
+  -oidc-client-secret-file /etc/nobet/oidc-secret \
+  -allow-groups nobet-viewers -session-key-file /etc/nobet/session-key \
+  -audit-log /var/log/nobet-web/audit.jsonl
+```
+
+Register `https://nobet.example.com/auth/callback` as the client's redirect URI. Allow people by email, username or subject (`-allow-users`), or by group (`-allow-groups`, read from the `groups` claim; `-groups-claim realm_access.roles` for Keycloak roles, and add `groups` to `-oidc-scopes` where the provider needs it). nobet-web uses the authorization code flow with PKCE, checks the state and nonce, and keeps the session in a signed, HttpOnly, SameSite cookie (`__Host-` prefixed over HTTPS) for 8 hours (`-session-ttl`). Serve HTTPS with `-tls-cert`/`-tls-key`, or put a TLS proxy in front. With sign-in, Prometheus cannot scrape the main listener, so use `-metrics-listen 127.0.0.1:9187`.
+
+`-audit-log` appends one JSON line per page view, sign-in, refusal and sign-out, with the user, the page and the time; it works behind a proxy too (with `-user-header`).
+
+```json
+{"time":"2026-10-20T21:58:12Z","event":"view","user":"alice@example.com","method":"GET","path":"/root","status":200,"remote":"127.0.0.1:47640"}
+```
 
 #### Prometheus metrics
 
@@ -331,7 +352,7 @@ UPD-004 knows Ubuntu, Debian (including its free LTS period) and Raspbian, RHEL,
 - [x] Alerts on changes (`-on-change` hooks) and Prometheus metrics (`nobet-web -metrics`)
 - [x] Ansible inventories (INI, and `ansible-inventory --list` JSON) with `-group`
 - [x] `nobet-web`: read-only team dashboard over a shared scan history
-- [ ] `nobet-web`: built-in OIDC login with a read-only role, and an audit log of who viewed what
+- [x] `nobet-web`: built-in OIDC sign-in with a read-only role, and an audit log of who viewed what
 
 ## Project layout
 

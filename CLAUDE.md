@@ -16,7 +16,7 @@ On Windows without a Go toolchain, the WSL distro has one in `~/.local/goroot/bi
 
 ```
 cmd/nobet/          CLI: main.go (dispatch, banner), targets.go (shared host flags), scan.go, rootmap.go, diff.go
-cmd/nobet-web/      read-only dashboard binary (flags, server, graceful shutdown)
+cmd/nobet-web/      read-only dashboard binary (flags, server, graceful shutdown; oidc.go: sign-in flags)
 internal/runner/    Runner interface and Result only (no dependencies)
 internal/transport/ Local (/bin/sh) and SSH runners (agent incl. Windows pipe, keys, strict known_hosts, ProxyJump chains)
 internal/fleet/     Local/Remote scans: the only package that connects to hosts; CLI only
@@ -32,7 +32,7 @@ internal/drift/     changes between two snapshots of a host
 internal/rootmap/   fleet-wide "who can become root where", grouped by SSH key
 internal/report/    text, JSON, HTML (embedded template + logo in assets/)
 internal/tui/       Bubble Tea UI; `r` toggles root access view
-internal/web/       nobet-web: history index, pages (embedded templates/ and static/)
+internal/web/       nobet-web: history index, pages (embedded templates/ and static/); auth.go (OIDC sign-in, signed cookies), access.go (login gate, audit log)
 contrib/systemd/    nobet-scan.service/.timer and nobet-web.service (hardened)
 contrib/docker/     nobet-scan-loop: the scanner image's entrypoint (adds -on-change for an executable config/on-change)
 contrib/hooks/      -on-change examples (slack: curl or busybox wget, no jq, so it runs in the scanner image)
@@ -73,7 +73,8 @@ Decided by the maintainer on 2026-10-14:
 
 - **Separate binary in this repo**, not a separate repo: Go forbids importing `internal/` from another module, and a public `pkg/` API is not worth versioning yet. Own packages (`nobet` and `nobet-web` deb/rpm/apk), shared version and changelog. Revisit only if the dashboard gets its own contributors or release rhythm.
 - **Read-only over scan history.** It never scans and never holds SSH credentials. Scans come from `nobet scan` under a service account (systemd timer) writing to a shared history (`/var/lib/nobet/scans`). If on-demand scans are ever needed, the web process only queues a request and a separate worker running the CLI under the service account does the scan; the web process still never touches a key.
-- **For teams, with access control from day one.** v1: localhost only by default, behind the team's authenticating reverse proxy; no built-in login code. v2: built-in OIDC login with a read-only role and an audit log of who viewed what.
+- **For teams, with access control from day one.** v1: localhost only by default, behind the team's authenticating reverse proxy. v2 (built 2026-10-20): built-in OIDC login with a read-only role and an audit log of who viewed what.
+- **Sign-in details** (keep these): go-oidc verifies ID tokens (no hand-written JWT code); authorization code flow with PKCE (S256), state and nonce, all held in a short-lived signed cookie, so the server keeps no session store; session cookie HMAC-SHA256 signed, HttpOnly, SameSite=Lax, `__Host-` over HTTPS; nobody may sign in unless `-allow-users`/`-allow-groups`/`-allow-any-user` says so; an unverified email never matches; return paths are local only (`safeReturn`); the callback's code and state never reach a log. Secrets come from files, never flags. Tested against a fake provider (auth_test.go) and against Dex.
 - No JavaScript, strict CSP (no inline styles either), pages `no-store`, GET/HEAD only.
 - `/metrics` (Prometheus text format, hand-written, no client library) is opt-in with `-metrics`; it shows counts and times, never finding details. Check changes with `promtool check metrics`.
 
@@ -85,11 +86,10 @@ Decided by the maintainer on 2026-10-14:
 - Pre-release packages are versioned `0.1.0~beta.1` so they sort before `0.1.0` and upgrade cleanly; GitHub shows the `~` as `.` in asset names.
 - The release workflow also signs `checksums.txt` (cosign keyless, `*.sigstore.json` bundle), writes an SBOM per archive (syft), and after the GitHub release pushes `ghcr.io/olgacveysel/nobet-{scanner,web}` for amd64 and arm64 (signed, SBOM and provenance attached; pre-releases get only their version tag). Snapshots must pass `--skip=sign`: goreleaser does not skip signing in snapshot mode, and cosign would start an interactive login. New GHCR packages can start out private: after the first image release, check that both are public (package settings).
 - Dependabot opens weekly grouped PRs for Go modules, Actions and base images; CI also runs weekly so govulncheck sees new advisories.
-- v0.1.0-beta.1 was released on 2026-10-14. CI never ran for it: the workflow listened on `main` until 2026-10-19.
+- v0.1.0-beta.1 was released on 2026-10-14 (CI never ran for it: the workflow listened on `main` until 2026-10-19); v0.1.0-beta.3 on 2026-10-20 was the first through the full pipeline. GitHub Actions without a floating major tag (cosign-installer) are pinned to an exact version.
 
 ## Roadmap (next)
 
-- v0.1.0: test on real servers (firewalls, /boot kernels and real package states never appear in the container lab); get a beta release through the full workflow first (v0.1.0-beta.2 failed at setup on 2026-10-20: cosign-installer has no floating v4 tag, now pinned to v4.1.2; the image and signing jobs have still never run), fix what turns up, then tag v0.1.0
-- nobet-web v2: OIDC login, read-only role, audit log of who viewed what (see design decisions)
+- v0.1.0: test on real servers (firewalls, /boot kernels and real package states never appear in the container lab), fix what turns up, then tag v0.1.0. v0.1.0-beta.3 (2026-10-20) went through the whole release workflow: signed checksums, SBOMs, and signed public multi-arch images on GHCR (cosign verify passes). beta.2 failed at setup (cosign-installer has no floating v4 tag; pinned to v4.1.2).
 - Candidates: sysctl hardening; automatic updates disabled; accounts with keys that have not logged in for months; CIS Benchmark IDs in the HTML report (only with a verified mapping)
 - FS-003 follow-ups: shebang interpreters and files a script sources; root's own PATH directories (only crontab PATH= is checked); `Exec` lines with the `+` prefix in services that run as another user

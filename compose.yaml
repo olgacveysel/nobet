@@ -4,8 +4,8 @@
 # Only the scanner gets the SSH key. The dashboard reads the scan history
 # from a read-only volume, holds no keys, cannot reach your servers through
 # any code it contains, and is published on this machine's localhost only.
-# It has no login: put an authenticating reverse proxy in front of it before
-# anyone else uses it.
+# Put an authenticating reverse proxy in front of it, or use its built-in
+# OpenID Connect sign-in (see the README), before anyone else uses it.
 #
 # Setup (details in the README, section "Docker"):
 #   mkdir -p config secrets

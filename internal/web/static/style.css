@@ -32,6 +32,8 @@ h3 { font-size: 15px; margin: 20px 0 6px; }
 .top nav a:hover { background: var(--tile); }
 .top nav a[aria-current="page"] { background: var(--tile); color: #F2A93B; }
 .top .meta { margin-left: auto; color: #b9b4a8; font-size: 13px; }
+.top .meta .who { color: var(--cream); margin-left: 10px; }
+.top .meta a { color: #F2A93B; margin-left: 6px; }
 
 main { max-width: 1120px; margin: 0 auto; padding: 20px 16px 48px; }
 footer { max-width: 1120px; margin: 0 auto; padding: 16px; color: var(--muted); font-size: 12px; border-top: 1px solid var(--line); }

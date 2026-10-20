@@ -2,6 +2,6 @@
 <section class="empty">
   <h1>{{.Title}}</h1>
   <p>{{.Text}}</p>
-  <p><a href="/">Back to the fleet</a></p>
+  <p>{{if .Link}}<a href="{{.Link}}">{{.LinkText}}</a>{{else}}<a href="/">Back to the fleet</a>{{end}}</p>
 </section>
 {{end}}

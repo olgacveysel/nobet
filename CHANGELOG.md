@@ -33,8 +33,11 @@ nöbet audits Linux servers over SSH, or the machine it runs on, without install
 
 **Team dashboard (`nobet-web`, separate package)**
 - Read-only view of a shared scan history: fleet status and 30-day trend, each host's findings, allowlist decisions, skipped checks and scan history, all changes between scans, and the root access map.
-- Never scans and holds no SSH keys; the build is tested to contain no SSH client. No login of its own: listens on localhost behind your authenticating reverse proxy, and can log the user the proxy reports.
+- Never scans and holds no SSH keys; the build is tested to contain no SSH client. Listens on localhost behind your authenticating reverse proxy (and can log the user the proxy reports), or signs users in itself (below).
 - Strict Content-Security-Policy (no scripts at all), no caching of pages, GET/HEAD only.
+- Built-in sign-in with OpenID Connect (`-oidc-issuer`): authorization code flow with PKCE, allowed users or groups (nobody by default), signed session cookies; or keep using an authenticating proxy.
+- Audit log (`-audit-log`): one JSON line per page view, sign-in, refusal and sign-out, with the user.
+- HTTPS (`-tls-cert`, `-tls-key`), and metrics on a separate listener (`-metrics-listen`).
 - Optional Prometheus metrics (`-metrics`): findings per host and severity, scan times, stale and unreachable hosts, SSH keys with root access.
 - Key owners on the root access page (`-keys`).
 - systemd units for a nightly scan under a service account and for the dashboard, in `contrib/systemd`.

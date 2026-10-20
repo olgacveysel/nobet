@@ -17,7 +17,7 @@
       <a href="/changes"{{if eq .Nav "changes"}} aria-current="page"{{end}}>Changes</a>
       <a href="/root"{{if eq .Nav "root"}} aria-current="page"{{end}}>Root access</a>
     </nav>
-    <div class="meta">{{if .LastScan.IsZero}}no scans yet{{else}}<span title="{{when .LastScan}}">last scan {{ago .LastScan}}</span>{{end}}</div>
+    <div class="meta">{{if .LastScan.IsZero}}{{if .Nav}}no scans yet{{end}}{{else}}<span title="{{when .LastScan}}">last scan {{ago .LastScan}}</span>{{end}}{{if .User}} <span class="who">{{.User}}</span>{{if .SignOut}} <a href="/auth/logout">Sign out</a>{{end}}{{end}}</div>
   </div>
 </header>
 <main>

@@ -2,9 +2,9 @@
 //
 // It never scans and never holds SSH credentials: `nobet scan` runs
 // elsewhere (for example from a systemd timer under a service account) and
-// saves to a shared history directory, which nobet-web only reads. It has
-// no login of its own, so it listens on localhost by default; put it behind
-// a reverse proxy that authenticates your team.
+// saves to a shared history directory, which nobet-web only reads. Either
+// it listens on localhost behind a reverse proxy that authenticates your
+// team, or it signs users in itself with OpenID Connect (-oidc-issuer).
 package main
 
 import (
@@ -12,11 +12,13 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -38,11 +40,18 @@ func run(args []string) int {
 	userHeader := fs.String("user-header", "", "request header in which your proxy passes the signed-in user (e.g. X-Forwarded-User), to log who viewed what")
 	keysFile := fs.String("keys", "", "file naming who each SSH key belongs to (as for nobet rootmap -keys), shown on the root access page")
 	metrics := fs.Bool("metrics", false, "also serve /metrics in the Prometheus text format (findings per host and severity, scan times, root keys)")
+	metricsListen := fs.String("metrics-listen", "", "serve /metrics on this separate address instead (for example 127.0.0.1:9187), which needs no sign-in")
+	auditLog := fs.String("audit-log", "", "append every page view and sign-in, with the user, to this file as JSON lines")
+	tlsCert := fs.String("tls-cert", "", "serve HTTPS with this certificate (PEM; with -tls-key)")
+	tlsKey := fs.String("tls-key", "", "private key for -tls-cert")
+	var oc oidcFlags
+	oc.add(fs)
 	showVersion := fs.Bool("version", false, "print the version and exit")
 	fs.Usage = func() {
 		fmt.Fprint(fs.Output(), "Serve a read-only dashboard over nobet's saved scans.\n\n"+
-			"nobet-web never scans and holds no SSH keys. It has no login of its own:\n"+
-			"run it on localhost behind a reverse proxy that authenticates users.\n\n"+
+			"nobet-web never scans and holds no SSH keys. Run it on localhost behind a\n"+
+			"reverse proxy that authenticates users, or let it sign users in with your\n"+
+			"OpenID Connect provider (-oidc-issuer and the other -oidc flags).\n\n"+
 			"Usage:\n  nobet-web [flags]\n\nFlags:\n")
 		fs.PrintDefaults()
 	}
@@ -76,14 +85,43 @@ func run(args []string) int {
 			return 2
 		}
 	}
+	if (*tlsCert == "") != (*tlsKey == "") {
+		fmt.Fprintln(os.Stderr, "nobet-web: -tls-cert and -tls-key go together")
+		return 2
+	}
+	authCfg, err := oc.config()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "nobet-web:", err)
+		return 2
+	}
+	if authCfg != nil && *userHeader != "" {
+		fmt.Fprintln(os.Stderr, "nobet-web: -user-header is for a proxy that signs users in; with -oidc-issuer nobet-web does that itself")
+		return 2
+	}
+	var audit io.Writer
+	if *auditLog != "" {
+		f, err := os.OpenFile(*auditLog, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o640)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "nobet-web: audit log:", err)
+			return 2
+		}
+		defer f.Close()
+		audit = f
+	}
 	logger := log.New(os.Stderr, "", log.LstdFlags)
-	srv, err := web.New(web.Options{HistoryDir: dir, Version: version, StaleAfter: *stale, UserHeader: *userHeader, KeysFile: *keysFile, Metrics: *metrics, Log: logger})
+	srv, err := web.New(web.Options{HistoryDir: dir, Version: version, StaleAfter: *stale, UserHeader: *userHeader, KeysFile: *keysFile,
+		Metrics: *metrics && *metricsListen == "", Auth: authCfg, Audit: audit, Log: logger})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "nobet-web:", err)
 		return 1
 	}
-	if !loopback(*listen) {
-		logger.Printf("WARNING: listening on %s, beyond localhost. nobet-web has no login and shows which keys open root on which servers; make sure only an authenticating reverse proxy can reach it.", *listen)
+	switch {
+	case authCfg == nil && !loopback(*listen):
+		logger.Printf("WARNING: listening on %s, beyond localhost. Without -oidc-issuer nobet-web has no login and shows which keys open root on which servers; make sure only an authenticating reverse proxy can reach it.", *listen)
+	case authCfg != nil && *metrics && *metricsListen == "":
+		logger.Printf("note: with sign-in, /metrics needs a session too; Prometheus cannot sign in, so use -metrics-listen")
+	case authCfg != nil && !strings.HasPrefix(authCfg.PublicURL, "https://") && !loopback(*listen):
+		logger.Printf("WARNING: -public-url is not https, so session cookies cross the network unencrypted")
 	}
 
 	httpSrv := &http.Server{
@@ -100,12 +138,34 @@ func run(args []string) int {
 		fmt.Fprintln(os.Stderr, "nobet-web:", err)
 		return 1
 	}
-	logger.Printf("nobet-web %s serving %s on http://%s", version, dir, ln.Addr())
+	scheme := "http"
+	if *tlsCert != "" {
+		scheme = "https"
+	}
+	logger.Printf("nobet-web %s serving %s on %s://%s", version, dir, scheme, ln.Addr())
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	done := make(chan error, 1)
-	go func() { done <- httpSrv.Serve(ln) }()
+	done := make(chan error, 2)
+	go func() {
+		if *tlsCert != "" {
+			done <- httpSrv.ServeTLS(ln, *tlsCert, *tlsKey)
+		} else {
+			done <- httpSrv.Serve(ln)
+		}
+	}()
+	servers := []*http.Server{httpSrv}
+	if *metrics && *metricsListen != "" {
+		mln, err := net.Listen("tcp", *metricsListen)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "nobet-web: metrics:", err)
+			return 1
+		}
+		msrv := &http.Server{Handler: srv.MetricsHandler(), ReadHeaderTimeout: 5 * time.Second, WriteTimeout: 30 * time.Second}
+		servers = append(servers, msrv)
+		go func() { done <- msrv.Serve(mln) }()
+		logger.Printf("metrics on http://%s/metrics", mln.Addr())
+	}
 	select {
 	case err := <-done:
 		fmt.Fprintln(os.Stderr, "nobet-web:", err)
@@ -114,9 +174,11 @@ func run(args []string) int {
 	}
 	shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := httpSrv.Shutdown(shutdown); err != nil {
-		fmt.Fprintln(os.Stderr, "nobet-web: shutdown:", err)
-		return 1
+	for _, s := range servers {
+		if err := s.Shutdown(shutdown); err != nil {
+			fmt.Fprintln(os.Stderr, "nobet-web: shutdown:", err)
+			return 1
+		}
 	}
 	return 0
 }
