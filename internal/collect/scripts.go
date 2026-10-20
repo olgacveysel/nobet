@@ -139,6 +139,30 @@ true
 
 // Compares the running kernel with the newest one installed in /boot, and
 // looks for the reboot flag files that Debian/Ubuntu and SUSE create.
+// Prints how automatic updates are set up, as key=value lines and "end":
+// for apt the APT::Periodic settings, whether unattended-upgrades is
+// installed and the state of its timer; for dnf and yum the state of the
+// dnf-automatic, dnf5-automatic and yum-cron units and their apply_updates
+// settings. systemctl is-enabled reads unit files, so it also answers where
+// systemd is not running.
+const autoUpdatesScript = `PATH=$PATH:/usr/sbin:/sbin
+unit() { st=$(systemctl is-enabled "$1" 2>/dev/null); [ -n "$st" ] && echo "unit.$1=$st"; return 0; }
+if command -v apt-config >/dev/null 2>&1; then
+  apt-config dump 2>/dev/null | sed -n 's/^APT::Periodic::\(Unattended-Upgrade\|Update-Package-Lists\) "\(.*\)";$/periodic.\1=\2/p'
+  [ -x /usr/bin/unattended-upgrade ] && echo "unattended-upgrades=installed"
+  command -v systemctl >/dev/null 2>&1 && unit apt-daily-upgrade.timer
+fi
+if command -v dnf >/dev/null 2>&1 || command -v yum >/dev/null 2>&1; then
+  if command -v systemctl >/dev/null 2>&1; then
+    for u in dnf-automatic-install.timer dnf-automatic.timer dnf5-automatic.timer yum-cron.service; do unit "$u"; done
+  fi
+  for f in /etc/dnf/automatic.conf /etc/dnf/dnf5-plugins/automatic.conf /usr/share/dnf5/dnf5-plugins/automatic.conf /etc/yum/yum-cron.conf; do
+    [ -f "$f" ] && sed -n "s|^[[:space:]]*apply_updates[[:space:]]*=[[:space:]]*\([A-Za-z0-9]*\).*|apply.$f=\1|p" "$f"
+  done
+fi
+echo end
+`
+
 const rebootScript = `echo "running=$(uname -r)"
 latest=$(ls -1 /boot/vmlinuz-* 2>/dev/null | sed 's|^/boot/vmlinuz-||' | grep -v rescue | sort -V | tail -n 1)
 echo "latest=$latest"

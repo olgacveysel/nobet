@@ -54,6 +54,7 @@ docs/logo/          SVG logos, favicon
 - **Privilege gating.** Data that is only complete as root (other users' keys, sudo rights, firewall, SUID/world-writable) is skipped entirely without privilege rather than collected partially.
 - **Drift compares like with like.** Root/key changes only when both scans were privileged.
 - **Keep the history small.** Snapshots store Facts, so bulky raw listings stay out of JSON (`json:"-"`) and only their result is kept: `RootJobs`/`Paths`/`Links` (hundreds of entries per host) are dropped, `RootWritable` (usually empty) is stored.
+- **systemd Exec flags.** Root services: every `Exec*` command. Services with `User=`: only commands whose `Exec*Ex` property has `flags=privileged` (`+`) or `no-setuid` (`!`); checked on systemd 255.
 - **Who can change a file** (`Facts.Writers`): its owner, its group's members and everyone if writable, and the same for every directory above it; a sticky directory protects existing entries; a symlink's own mode means nothing, and a path through a symlinked directory (`/sbin -> usr/sbin`) is resolved. Check new path logic against merged-/usr distros and Alpine (`/var/spool/cron/crontabs` is a symlink there).
 - **Every parser has a test** with realistic sample output. Add one for every new collector. Where the logic is in awk, run the real script in the test (see `TestShadowScript`, `TestZypperScript`).
 - **Ansible inventories follow Ansible.** Variable precedence (all < parent groups < child groups < host) was checked against ansible-core's own `ansible-inventory --list`; recheck that way after changing ansible.go. YAML stays out (no YAML dependency): users convert with `ansible-inventory --list`.
@@ -91,5 +92,6 @@ Decided by the maintainer on 2026-10-14:
 ## Roadmap (next)
 
 - v0.1.0: test on real servers (firewalls, /boot kernels and real package states never appear in the container lab), fix what turns up, then tag v0.1.0. v0.1.0-beta.3 (2026-10-20) went through the whole release workflow: signed checksums, SBOMs, and signed public multi-arch images on GHCR (cosign verify passes). beta.2 failed at setup (cosign-installer has no floating v4 tag; pinned to v4.1.2).
-- Candidates: sysctl hardening; automatic updates disabled; accounts with keys that have not logged in for months; CIS Benchmark IDs in the HTML report (only with a verified mapping)
-- FS-003 follow-ups: shebang interpreters and files a script sources; root's own PATH directories (only crontab PATH= is checked); `Exec` lines with the `+` prefix in services that run as another user
+- Candidates: CIS Benchmark IDs in the HTML report (only with a verified mapping)
+- FS-003 follow-up: files a script sources or runs in turn (interpreters, root's PATH directories and `+`/`!` Exec commands are covered since 2026-10-21)
+- sysctl hardening and "accounts with keys unused for months" need real VMs to get defaults and login records right (containers show the host kernel's sysctls and no login history); do them with real-server testing

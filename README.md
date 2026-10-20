@@ -296,10 +296,11 @@ Measured with 50 hosts (the size nöbet is built for): a full scan takes about 1
 | UPD-002 | Medium          | Reboot required: newer kernel installed than running, or a reboot flag file exists |
 | UPD-003 | Low             | Package indexes not refreshed for more than 7 days, so update counts may be incomplete (all supported package managers) |
 | UPD-004 | High / Low / Info | The OS release is past its end of support (High) or reaches it within 180 days (Low). Ubuntu hosts with Ubuntu Pro ESM (esm-infra) enabled are Info until ESM ends; for paid extended support elsewhere (RHEL ELS, SLES LTSS, Debian ELTS), allowlist the finding with that reason |
+| UPD-005 | Low             | Security updates are not installed automatically: unattended-upgrades missing or off (apt), no dnf-automatic, dnf5-automatic or yum-cron timer that applies updates (dnf, yum). Allowlist it where updates roll out another way |
 
 Update checks only read the package manager's local cache. Nöbet never refreshes metadata or installs anything; when there is no cache to read, the check is skipped and tells you which command would create one.
 
-FS-003 follows what root runs: root's cron jobs (`/etc/crontab`, `/etc/cron.d`, root's crontab, anacron, and the scripts in `/etc/cron.daily` and the like or Alpine's `/etc/periodic`), systemd services that run as root (unit files, drop-ins and every `Exec` command), root's shell startup files, the programs sudo rules let someone run as root, and the account, sudo and dynamic loader configuration. From each command line it takes the programs and the scripts given to interpreters (`php /var/www/app/artisan`, `sh -c '...'`), not arguments or redirections, and leaves out commands that switch to another user (`sudo -u`, `su`). A file counts as changeable by an account that owns it or can write it, or that can write any directory above it (a sticky directory like `/tmp` protects what is already in it); symlinks are followed. The accounts found show up in the root access map, which lists up to three such files per account.
+FS-003 follows what root runs: root's cron jobs (`/etc/crontab`, `/etc/cron.d`, root's crontab, anacron, and the scripts in `/etc/cron.daily` and the like or Alpine's `/etc/periodic`), systemd services that run as root (unit files, drop-ins and every `Exec` command) and the `+` or `!` commands of services that run as another user, root's shell startup files, the directories on root's PATH (the standard ones, `/etc/environment` and sudo's `secure_path`), the programs sudo rules let someone run as root, and the account, sudo and dynamic loader configuration. For scripts outside the package-managed directories, the `#!` interpreter counts too (a cron script that runs `/opt/app/venv/bin/python` is only as safe as that virtualenv). From each command line it takes the programs and the scripts given to interpreters (`php /var/www/app/artisan`, `sh -c '...'`), not arguments or redirections, and leaves out commands that switch to another user (`sudo -u`, `su`). A file counts as changeable by an account that owns it or can write it, or that can write any directory above it (a sticky directory like `/tmp` protects what is already in it); symlinks are followed. The accounts found show up in the root access map, which lists up to three such files per account.
 
 UPD-004 knows Ubuntu, Debian (including its free LTS period) and Raspbian, RHEL, Rocky Linux, AlmaLinux, CentOS and CentOS Stream, Oracle Linux, Fedora, Alpine, openSUSE Leap, SLES and Amazon Linux. Support dates come from [endoflife.date](https://endoflife.date) and are built into each release; nöbet does not go online for them. Rolling releases are skipped. Nöbet never refreshes metadata or installs anything; when there is no cache to read, the check is skipped and tells you which command would create one.
 
@@ -319,7 +320,7 @@ UPD-004 knows Ubuntu, Debian (including its free LTS period) and Raspbian, RHEL,
 - The account you scan with will show up in ACC-002 if it has passwordless sudo; add it to the allowlist.
 - `user@host` patterns in `AllowUsers` are treated as allowing the user from anywhere.
 - Shell-escape detection for limited sudo rules uses a built-in list of well-known programs; a custom script that runs other commands is not inspected (though FS-003 reports it when someone other than root can change it).
-- FS-003 checks the files that command lines name with a path. Programs found through `PATH` are covered by checking the `PATH` directories a crontab sets, not root's own `PATH`; files a script sources or runs in turn, and libraries, are not followed.
+- FS-003 checks the files that command lines name with a path, script interpreters, and the directories on root's PATH. Files a script sources or runs in turn, and libraries, are not followed.
 - sudo Defaults are honored as `sudo -l` reports them, for the user, per runas user (`Defaults>root targetpw`) and per command (`Defaults!/usr/bin/vim rootpw`); host-bound Defaults are taken as already applied by sudo.
 - SUID and world-writable checks search /bin, /sbin, /usr, /opt, /etc, /tmp, /var/tmp, /home, /root and /srv, without crossing filesystems; the rest of /var is skipped because container storage holds many copies of SUID binaries.
 - Local scanning is Linux-only; from macOS or Windows, scan hosts over SSH.
@@ -346,6 +347,7 @@ UPD-004 knows Ubuntu, Debian (including its free LTS period) and Raspbian, RHEL,
 - [x] Docker Compose deployment (scanner + read-only dashboard)
 - [x] Signed releases with SBOMs; signed multi-arch container images on ghcr.io
 - [x] OS end of support (UPD-004), with Ubuntu Pro ESM detection
+- [x] Automatic security updates (UPD-005)
 - [x] Files root runs that other accounts can change (FS-003), as routes in the root access map
 - [x] Key owners and offboarding (`-keys`, `nobet rootmap -who`)
 - [x] Weak SSH algorithms (SSH-005), with RHEL 8's crypto policy taken into account

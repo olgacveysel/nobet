@@ -101,6 +101,7 @@ func All() []Check {
 		rebootRequired,
 		staleUpdateLists,
 		osSupport,
+		autoUpdates,
 		suidFiles,
 		worldWritable,
 		rootWritable,

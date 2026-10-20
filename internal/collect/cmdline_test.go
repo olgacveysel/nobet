@@ -100,6 +100,16 @@ User=
 DynamicUser=yes
 ExecStart={ path=/usr/lib/systemd/systemd-resolved ; argv[]=/usr/lib/systemd/systemd-resolved ; ignore_errors=no ; start_time=[n/a] ; stop_time=[n/a] ; pid=0 ; code=(null) ; status=0/0 }
 
+Id=man-db.service
+User=man
+DynamicUser=no
+FragmentPath=/usr/lib/systemd/system/man-db.service
+ExecStart={ path=/usr/bin/install ; argv[]=/usr/bin/install -d -o man -g man -m 0755 /var/cache/man ; ignore_errors=no ; start_time=[n/a] ; stop_time=[n/a] ; pid=0 ; code=(null) ; status=0/0 }
+ExecStart={ path=/usr/bin/mandb ; argv[]=/usr/bin/mandb --quiet ; ignore_errors=no ; start_time=[n/a] ; stop_time=[n/a] ; pid=0 ; code=(null) ; status=0/0 }
+ExecStartEx={ path=/usr/bin/install ; argv[]=/usr/bin/install -d -o man -g man -m 0755 /var/cache/man ; flags=privileged ; start_time=[n/a] ; stop_time=[n/a] ; pid=0 ; code=(null) ; status=0/0 }
+ExecStartEx={ path=/usr/bin/mandb ; argv[]=/usr/bin/mandb --quiet ; flags= ; start_time=[n/a] ; stop_time=[n/a] ; pid=0 ; code=(null) ; status=0/0 }
+ExecStartPreEx={ path=/opt/hook ; argv[]=/opt/hook now ; flags=ignore-failure no-setuid ; start_time=[n/a] ; stop_time=[n/a] ; pid=0 ; code=(null) ; status=0/0 }
+
 Id=multi.service
 User=
 DynamicUser=no
@@ -110,6 +120,7 @@ ExecStart={ path=/usr/bin/true ; argv[]=/usr/bin/true ; ignore_errors=no ; start
 	want := []RootJob{
 		{Kind: "systemd", Source: "cron.service", Paths: []string{"/usr/lib/systemd/system/cron.service", "/usr/sbin/cron"}},
 		{Kind: "systemd", Source: "app.service", Paths: []string{"/etc/systemd/system/app.service", "/etc/systemd/system/app.service.d/override.conf", "/bin/sh", "/opt/app/migrate.sh", "/opt/app/bin/server", "/bin/kill"}},
+		{Kind: "systemd-privileged", Source: "man-db.service", Paths: []string{"/opt/hook", "/usr/bin/install"}}, // + and ! commands only; not mandb
 		{Kind: "systemd", Source: "multi.service", Paths: []string{"/etc/systemd/system/multi.service", "/usr/bin/true", "/opt/second"}},
 	}
 	if !reflect.DeepEqual(got, want) {

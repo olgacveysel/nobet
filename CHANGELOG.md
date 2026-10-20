@@ -19,9 +19,10 @@ nöbet audits Linux servers over SSH, or the machine it runs on, without install
 - SSH checks and rootmap evaluate `Match` blocks and say where a setting applies (`from 10.0.0.0/8`, `for deploy`).
 - Network: the Docker API without TLS on any non-loopback address (Critical), databases and admin APIs on all interfaces, missing host firewall.
 - Updates: pending security updates (apt, dnf, dnf5, yum, zypper; every pending update for apk, which does not label security fixes), reboot required, stale package indexes for every manager.
+- Automatic security updates off (UPD-005): unattended-upgrades, dnf-automatic, dnf5-automatic and yum-cron.
 - OS end of support (UPD-004): past or within 180 days, for 13 distributions, with Ubuntu Pro ESM detected; dates from endoflife.date, built in.
 - Files: SUID shells and interpreters, SUID files in temporary or home directories or outside any package, world-writable system paths.
-- Files root runs that other accounts can change (FS-003): cron jobs, run-parts scripts, systemd services running as root, root's shell startup files, programs named in sudo rules, and account/sudo/loader configuration; each account found is a route in `nobet rootmap`.
+- Files root runs that other accounts can change (FS-003): cron jobs, run-parts scripts, systemd services running as root (and `+`/`!` commands of other services), root's shell startup files and PATH directories, script interpreters, programs named in sudo rules, and account/sudo/loader configuration; each account found is a route in `nobet rootmap`.
 
 **Access and change tracking**
 - `nobet rootmap`: who can become root on which host and how, grouped by SSH key; follows `AuthorizedKeysFile`, applies `AllowUsers`/`DenyUsers`/`AllowGroups`/`DenyGroups`, account password states, and sudo's `rootpw`/`targetpw`/`!authenticate` Defaults per user, runas user and command.

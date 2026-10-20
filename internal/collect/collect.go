@@ -170,6 +170,7 @@ type Facts struct {
 	Listeners       []Listener
 	Updates         *Updates
 	Reboot          *Reboot
+	AutoUpdates     map[string]string // how automatic updates are set up (autoUpdatesScript keys); nil if unknown
 	Firewall        *Firewall
 	SUID            []SUIDFile
 	Writable        []WritableEntry
@@ -180,6 +181,7 @@ type Facts struct {
 	RootJobs     []RootJob            `json:"-"` // what root runs or trusts
 	Paths        map[string]PathEntry `json:"-"` // owner and mode of RootJobs' paths and the directories above them
 	Links        map[string]string    `json:"-"` // symlinks among those paths, to their targets
+	Interpreters map[string]string    `json:"-"` // scripts among those paths -> their #! interpreter
 	Errors       map[string]string    // collector name -> why it failed
 }
 
@@ -325,6 +327,11 @@ func Collect(r runner.Runner) *Facts {
 	if out, ok := run("reboot", script(rebootScript, false)); ok {
 		f.Reboot = parseReboot(out)
 	}
+	if out, ok := run("autoupdates", script(autoUpdatesScript, false)); ok {
+		if f.AutoUpdates = parseKeyValues(out); f.AutoUpdates == nil {
+			f.Errors["autoupdates"] = "the listing stopped early"
+		}
+	}
 
 	// Sudoers, firewall rules, file permissions across the system, other
 	// users' keys and sudo rights are only fully readable as root; partial
@@ -397,16 +404,17 @@ func (f *Facts) collectRootPaths(run func(name, body string) (string, bool)) {
 		return
 	}
 	jobs = append(jobs, sudoJobs(f)...)
+	jobs = append(jobs, securePathJob(f.Sudoers)...)
 	paths, truncated := rootPaths(jobs)
 	if out, ok = run("root-paths", pathsScript(paths)); !ok {
 		return
 	}
-	entries, links := parsePaths(out)
+	entries, links, interps := parsePaths(out)
 	if entries == nil {
 		f.Errors["root-paths"] = "the file permission listing stopped early"
 		return
 	}
-	f.RootJobs, f.Paths, f.Links = jobs, entries, links
+	f.RootJobs, f.Paths, f.Links, f.Interpreters = jobs, entries, links, interps
 	f.RootWritable = f.writablePaths()
 	if truncated {
 		f.Errors["root-paths"] = fmt.Sprintf("only the first %d paths were checked", maxRootPaths)
@@ -643,6 +651,21 @@ func rpmName(nevra string) string {
 		return nevra
 	}
 	return strings.Join(parts[:len(parts)-2], "-")
+}
+
+// parseKeyValues reads key=value lines up to a closing "end"; without it
+// the output may be cut short, and it returns nil.
+func parseKeyValues(s string) map[string]string {
+	m := map[string]string{}
+	for _, line := range lines(s) {
+		if line == "end" {
+			return m
+		}
+		if k, v, ok := strings.Cut(line, "="); ok {
+			m[k] = v
+		}
+	}
+	return nil
 }
 
 func parseReboot(s string) *Reboot {

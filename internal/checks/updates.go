@@ -130,6 +130,103 @@ var staleUpdateLists = Check{
 	},
 }
 
+var autoUpdates = Check{
+	ID:    "UPD-005",
+	Title: "Automatic security updates",
+	Run: func(f *collect.Facts) ([]Finding, string) {
+		a := f.AutoUpdates
+		if a == nil {
+			return nil, "could not check how updates are installed: " + f.Errors["autoupdates"]
+		}
+		manager := ""
+		if f.Updates != nil {
+			manager = f.Updates.Manager
+		}
+		var why, fix string
+		switch manager {
+		case "apt":
+			switch {
+			case a["unattended-upgrades"] != "installed":
+				why = "unattended-upgrades is not installed"
+			case !nonZero(a["periodic.Unattended-Upgrade"]):
+				why = "APT::Periodic::Unattended-Upgrade is " + orUnset(a["periodic.Unattended-Upgrade"])
+			case !nonZero(a["periodic.Update-Package-Lists"]):
+				why = "APT::Periodic::Update-Package-Lists is " + orUnset(a["periodic.Update-Package-Lists"]) + ", so upgrades would use stale package lists"
+			case disabled(a["unit.apt-daily-upgrade.timer"]):
+				why = "apt-daily-upgrade.timer, which runs them, is " + a["unit.apt-daily-upgrade.timer"]
+			}
+			fix = "apt install unattended-upgrades && dpkg-reconfigure -plow unattended-upgrades (it installs security updates by default)"
+		case "dnf", "dnf5", "yum":
+			if autoInstalls(a) {
+				return nil, ""
+			}
+			why = "no dnf-automatic, dnf5-automatic or yum-cron timer installs updates"
+			for _, u := range []string{"dnf-automatic.timer", "dnf5-automatic.timer", "yum-cron.service"} {
+				if a["unit."+u] == "enabled" {
+					why = u + " is enabled but only downloads or reports (apply_updates is not yes)"
+				}
+			}
+			switch manager {
+			case "dnf5":
+				fix = "dnf install dnf5-plugin-automatic, set apply_updates = yes (and upgrade_type = security) in /etc/dnf/automatic.conf, then systemctl enable --now dnf5-automatic.timer"
+			case "yum":
+				fix = "yum install yum-cron, set apply_updates = yes and update_cmd = security in /etc/yum/yum-cron.conf, then systemctl enable --now yum-cron"
+			default:
+				fix = "dnf install dnf-automatic, set upgrade_type = security in /etc/dnf/automatic.conf, then systemctl enable --now dnf-automatic-install.timer"
+			}
+		case "":
+			return nil, "no supported package manager found"
+		default:
+			return nil, manager + " has no standard automatic update service to check"
+		}
+		if why == "" {
+			return nil, ""
+		}
+		return []Finding{{
+			CheckID:  "UPD-005",
+			Severity: Low,
+			Title:    "Security updates are not installed automatically",
+			Detail:   why + "; if updates are rolled out another way (configuration management, patch windows), allowlist this",
+			Fix:      fix,
+		}}, ""
+	},
+}
+
+// autoInstalls reports whether a dnf, dnf5 or yum timer installs updates.
+func autoInstalls(a map[string]string) bool {
+	if a["unit.dnf-automatic-install.timer"] == "enabled" {
+		return true
+	}
+	applies := false
+	for k, v := range a {
+		if strings.HasPrefix(k, "apply.") && (strings.EqualFold(v, "yes") || strings.EqualFold(v, "true") || v == "1") {
+			applies = true
+		}
+	}
+	for _, u := range []string{"dnf-automatic.timer", "dnf5-automatic.timer", "yum-cron.service"} {
+		if a["unit."+u] == "enabled" && applies {
+			return true
+		}
+	}
+	return false
+}
+
+// nonZero reports whether an APT::Periodic interval is set ("1", "7", "always").
+func nonZero(v string) bool {
+	return v != "" && v != "0"
+}
+
+func disabled(state string) bool {
+	return state == "disabled" || state == "masked"
+}
+
+func orUnset(v string) string {
+	if v == "" {
+		return "not set"
+	}
+	return v
+}
+
 // summarize joins up to max names and notes how many were left out.
 func summarize(names []string, max int) string {
 	if len(names) <= max {

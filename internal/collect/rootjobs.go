@@ -32,18 +32,26 @@ type PathEntry struct {
 type Writer struct {
 	Account  string `json:"account,omitempty"` // account name, or "uid N" for an owner without one
 	Everyone bool   `json:"everyone,omitempty"`
-	Path     string `json:"path"` // the file or directory that lets it: the file itself or one above it
-	How      string `json:"how"`  // "owner", "group <name>" or "world-writable"
+	Path     string `json:"path"`              // the file or directory that lets it: the file itself or one above it
+	How      string `json:"how"`               // "owner", "group <name>" or "world-writable"
+	Through  string `json:"through,omitempty"` // the script's #! interpreter, when that is what can be changed
 }
 
 func (w Writer) String() string {
+	what, note := w.Path, ""
+	switch {
+	case w.Through == w.Path:
+		what = "its interpreter " + w.Path
+	case w.Through != "":
+		note = " (above its interpreter " + w.Through + ")"
+	}
 	switch {
 	case w.Everyone:
-		return w.Path + " is world-writable"
+		return what + " is world-writable" + note
 	case w.How == "owner":
-		return w.Account + " owns " + w.Path
+		return w.Account + " owns " + what + note
 	default:
-		return w.Account + " through " + w.How + " on " + w.Path
+		return w.Account + " through " + w.How + " on " + what + note
 	}
 }
 
@@ -65,6 +73,10 @@ func (w WritablePath) Use() string {
 		return "run by root's cron (" + w.Source + ")"
 	case "systemd":
 		return "used by " + w.Source + ", which runs as root"
+	case "systemd-privileged":
+		return "run as root by a + or ! command of " + w.Source
+	case "path":
+		return "on root's PATH (" + w.Source + ")"
 	case "startup":
 		return "run by root's login shells"
 	case "sudo":
@@ -103,6 +115,13 @@ echo "@@files startup root's shell startup files"
 for f in /etc/profile /etc/bash.bashrc /etc/bashrc /etc/zprofile /etc/zsh/zshrc /etc/zsh/zprofile /root/.profile /root/.bashrc /root/.bash_profile /root/.bash_login /root/.zshrc /root/.zprofile /etc/profile.d /etc/profile.d/*.sh; do
   [ -e "$f" ] && echo "$f"
 done
+# Commands root types or scripts call without a path come from these.
+echo "@@files path standard directories"
+for d in /usr/local/sbin /usr/local/bin /usr/sbin /usr/bin /sbin /bin; do [ -d "$d" ] && echo "$d"; done
+if [ -f /etc/environment ]; then
+  echo "@@files path /etc/environment"
+  sed -n 's/^[[:space:]]*PATH=//p' /etc/environment | tr -d '"' | tr ':' '\n'
+fi
 echo "@@files config account, sudo and loader configuration"
 for f in /etc/passwd /etc/shadow /etc/group /etc/sudoers /etc/sudoers.d /etc/sudoers.d/* /etc/ld.so.preload /etc/ld.so.conf /etc/ld.so.conf.d /etc/ld.so.conf.d/*; do
   [ -e "$f" ] && echo "$f"
@@ -111,8 +130,11 @@ if [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1; then
   echo "@@files systemd systemd unit directory"
   echo /etc/systemd/system
   echo "@@systemd"
+  # The Ex properties (systemd 243+) carry the + and ! flags: those
+  # commands run as root even in a service that runs as another user.
   systemctl show --all --no-pager -p Id -p User -p DynamicUser -p FragmentPath -p DropInPaths \
-    -p ExecStart -p ExecStartPre -p ExecStartPost -p ExecReload -p ExecStop -p ExecStopPost '*.service' || echo "@@failed"
+    -p ExecStart -p ExecStartPre -p ExecStartPost -p ExecReload -p ExecStop -p ExecStopPost \
+    -p ExecStartEx -p ExecStartPreEx -p ExecStartPostEx -p ExecReloadEx -p ExecStopEx -p ExecStopPostEx '*.service' || echo "@@failed"
 fi
 echo "@@end"
 `
@@ -261,6 +283,16 @@ func systemdJobs(lines []string) []RootJob {
 			return
 		}
 		if u := first(props["User"]); u != "" && u != "root" && u != "0" || first(props["DynamicUser"]) == "yes" {
+			// Another user, except for commands marked + or !.
+			j := RootJob{Kind: "systemd-privileged", Source: id}
+			for _, k := range execKeys {
+				for _, v := range props[k+"Ex"] {
+					j.Paths = append(j.Paths, execPaths(v, true)...)
+				}
+			}
+			if j.Paths = dedupe(j.Paths); len(j.Paths) > 0 {
+				jobs = append(jobs, j)
+			}
 			return
 		}
 		j := RootJob{Kind: "systemd", Source: id}
@@ -272,9 +304,9 @@ func systemdJobs(lines []string) []RootJob {
 				j.Paths = append(j.Paths, p)
 			}
 		}
-		for _, k := range []string{"ExecStartPre", "ExecStart", "ExecStartPost", "ExecReload", "ExecStop", "ExecStopPost"} {
+		for _, k := range execKeys {
 			for _, v := range props[k] {
-				j.Paths = append(j.Paths, execPaths(v)...)
+				j.Paths = append(j.Paths, execPaths(v, false)...)
 			}
 		}
 		if j.Paths = dedupe(j.Paths); len(j.Paths) > 0 {
@@ -295,23 +327,63 @@ func systemdJobs(lines []string) []RootJob {
 	return jobs
 }
 
+var execKeys = []string{"ExecStartPre", "ExecStart", "ExecStartPost", "ExecReload", "ExecStop", "ExecStopPost"}
+
 // execPaths reads one Exec property as systemctl shows it:
 // { path=/usr/sbin/cron ; argv[]=/usr/sbin/cron -f $EXTRA_OPTS ; ignore_errors=no ; ... }
-// Several commands are separated by " } ; { ".
-func execPaths(v string) []string {
+// or, for the Ex properties, "... ; flags=privileged ; ...". Several
+// commands are separated by " } ; { ". With privilegedOnly, only commands
+// flagged + (privileged) or ! (no-setuid) count.
+func execPaths(v string, privilegedOnly bool) []string {
 	var out []string
 	for _, cmd := range strings.Split(v, "} ; {") {
+		if privilegedOnly {
+			_, flags, _ := strings.Cut(cmd, " ; flags=")
+			flags, _, _ = strings.Cut(flags, " ;")
+			if !strings.Contains(flags, "privileged") && !strings.Contains(flags, "no-setuid") {
+				continue
+			}
+		}
 		if _, rest, ok := strings.Cut(cmd, "path="); ok {
 			if p, _, _ := strings.Cut(rest, " ;"); strings.HasPrefix(p, "/") {
 				out = append(out, strings.TrimSpace(p))
 			}
 		}
 		if _, rest, ok := strings.Cut(cmd, "argv[]="); ok {
-			argv, _, _ := strings.Cut(rest, " ; ignore_errors=")
+			argv := rest
+			for _, end := range []string{" ; ignore_errors=", " ; flags="} {
+				if i := strings.Index(argv, end); i >= 0 {
+					argv = argv[:i]
+				}
+			}
 			out = append(out, CommandPaths(argv, true)...)
 		}
 	}
 	return out
+}
+
+// securePath is sudo's secure_path, the PATH for commands run with sudo.
+var securePath = regexp.MustCompile(`secure_path\s*=\s*"?([^"\s]+)`)
+
+// securePathJob turns sudo's secure_path into the directories it names.
+func securePathJob(sudoers []SudoLine) []RootJob {
+	j := RootJob{Kind: "path", Source: "sudo's secure_path"}
+	for _, l := range sudoers {
+		if !strings.HasPrefix(l.Text, "Defaults") {
+			continue
+		}
+		if m := securePath.FindStringSubmatch(l.Text); m != nil {
+			for _, d := range strings.Split(m[1], ":") {
+				if strings.HasPrefix(d, "/") {
+					j.Paths = append(j.Paths, path.Clean(d))
+				}
+			}
+		}
+	}
+	if j.Paths = dedupe(j.Paths); len(j.Paths) == 0 {
+		return nil
+	}
+	return []RootJob{j}
 }
 
 func first(v []string) string {
@@ -381,15 +453,28 @@ func rootPaths(jobs []RootJob) (paths []string, truncated bool) {
 // the resolved path of every one that goes through a symlink (itself or a
 // directory above it, like /sbin -> usr/sbin) and the directories above
 // that, a line "stat|uid|gid|octal mode|type|path", then
-// "link|path|resolved" for those and "@@end". paths must be shell-safe
-// (see rootPaths).
+// "link|path|resolved" for those and "@@end". For scripts outside the
+// package-managed directories it also prints "interp|script|interpreter"
+// for their #! line, and covers the interpreter the same way. paths must
+// be shell-safe (see rootPaths).
 func pathsScript(paths []string) string {
 	return fmt.Sprintf(`set -f
 IFS='
 '
 paths='%s'
-targets=''
+interps=''
 for p in $paths; do
+  case "$p" in /usr/bin/*|/usr/sbin/*|/bin/*|/sbin/*|/usr/lib/*|/usr/lib64/*|/usr/libexec/*|/lib/*|/lib64/*) continue ;; esac
+  [ -f "$p" ] || continue
+  first=$(head -c 256 "$p" 2>/dev/null | head -n 1)
+  case "$first" in '#!'*) ;; *) continue ;; esac
+  i=$(echo "${first#??}" | awk '{ sub(/\r$/, ""); if ($1 ~ /\/env$/) { for (k = 2; k <= NF; k++) if ($k !~ /^-/ && $k !~ /=/) { print "env " $k; exit } } else print $1 }')
+  case "$i" in 'env '*) i=$(PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin command -v "${i#env }" 2>/dev/null) ;; esac
+  case "$i" in /*) echo "interp|$p|$i"; interps="$interps
+$i" ;; esac
+done
+targets=''
+for p in $paths $interps; do
   q=$p
   while [ -n "$q" ] && [ ! -L "$q" ]; do q=${q%%/*}; done
   if [ -n "$q" ]; then
@@ -399,7 +484,7 @@ $t"
 done
 {
   echo /
-  for p in $paths $targets; do
+  for p in $paths $interps $targets; do
     q=$p
     while [ -n "$q" ]; do echo "$q"; q=${q%%/*}; done
   done
@@ -410,17 +495,19 @@ echo "@@end"
 
 // parsePaths reads pathsScript output. Paths that do not exist are simply
 // absent. It returns nil maps when the output is incomplete.
-func parsePaths(s string) (map[string]PathEntry, map[string]string) {
-	entries, links := map[string]PathEntry{}, map[string]string{}
+func parsePaths(s string) (entries map[string]PathEntry, links, interps map[string]string) {
+	entries, links, interps = map[string]PathEntry{}, map[string]string{}, map[string]string{}
 	for _, line := range strings.Split(s, "\n") {
 		line = strings.TrimRight(line, "\r")
 		if line == "@@end" {
-			return entries, links
+			return entries, links, interps
 		}
 		parts := strings.SplitN(line, "|", 6)
 		switch {
 		case parts[0] == "link" && len(parts) >= 3:
 			links[parts[1]] = strings.Join(parts[2:], "|")
+		case parts[0] == "interp" && len(parts) >= 3:
+			interps[parts[1]] = strings.Join(parts[2:], "|")
 		case parts[0] == "stat" && len(parts) == 6:
 			uid, err1 := strconv.Atoi(parts[1])
 			gid, err2 := strconv.Atoi(parts[2])
@@ -440,7 +527,7 @@ func parsePaths(s string) (map[string]PathEntry, map[string]string) {
 			entries[parts[5]] = PathEntry{UID: uid, GID: gid, Mode: uint32(mode), Type: typ}
 		}
 	}
-	return nil, nil
+	return nil, nil, nil
 }
 
 // Writers returns the accounts other than root that can change p: its
@@ -465,6 +552,17 @@ func (f *Facts) Writers(p string) []Writer {
 	f.chainWriters(p, add)
 	if t, ok := f.Links[p]; ok && t != p {
 		f.chainWriters(t, add)
+	}
+	// Whoever can change a script's interpreter controls the script too.
+	if i, ok := f.Interpreters[p]; ok {
+		through := func(w Writer) {
+			w.Through = i
+			add(w)
+		}
+		f.chainWriters(i, through)
+		if t, ok := f.Links[i]; ok && t != i {
+			f.chainWriters(t, through)
+		}
 	}
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].Everyone != out[j].Everyone {
@@ -546,8 +644,15 @@ func chain(p string) []string {
 // than root can change, in job order. It needs RootJobs and Paths.
 func (f *Facts) writablePaths() []WritablePath {
 	out := []WritablePath{}
+	onPath := map[string]bool{} // a PATH directory is reported once, whichever lists name it
 	for _, j := range f.RootJobs {
 		for _, p := range j.Paths {
+			if j.Kind == "path" {
+				if onPath[p] {
+					continue
+				}
+				onPath[p] = true
+			}
 			if ws := f.Writers(p); len(ws) > 0 {
 				out = append(out, WritablePath{Kind: j.Kind, Source: j.Source, Path: p, Writers: ws})
 			}
