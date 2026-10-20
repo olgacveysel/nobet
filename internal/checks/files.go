@@ -1,6 +1,7 @@
 package checks
 
 import (
+	"fmt"
 	"path"
 	"strings"
 
@@ -104,6 +105,71 @@ var worldWritable = Check{
 		}
 		return out, ""
 	},
+}
+
+var rootWritable = Check{
+	ID:    "FS-003",
+	Title: "Files root runs that other accounts can change",
+	Run: func(f *collect.Facts) ([]Finding, string) {
+		if f.RootWritable == nil {
+			collector := "root-jobs"
+			if f.Errors["root-paths"] != "" {
+				collector = "root-paths"
+			}
+			return nil, unavailable(f, collector, "what root runs")
+		}
+		var anyone, accounts []string
+		for _, w := range f.RootWritable {
+			var who []string
+			everyone := false
+			for _, wr := range w.Writers {
+				everyone = everyone || wr.Everyone
+				who = append(who, wr.String())
+			}
+			entry := w.Path + " " + w.Use() + ": " + strings.Join(who, ", ")
+			if everyone {
+				anyone = append(anyone, entry)
+			} else {
+				accounts = append(accounts, entry)
+			}
+		}
+		// A capped listing must not read as a complete one.
+		note := ""
+		if e := f.Errors["root-paths"]; e != "" {
+			if len(anyone)+len(accounts) == 0 {
+				return nil, "what root runs was only partly checked: " + e
+			}
+			note = " (" + e + ")"
+		}
+		var out []Finding
+		if len(anyone) > 0 {
+			out = append(out, Finding{
+				CheckID:  "FS-003",
+				Severity: Critical,
+				Title:    "Any account can change files that root runs",
+				Detail:   joinSome(anyone, 5) + note,
+				Fix:      "Remove world write access (chmod o-w) from these files and the directories above them; any local user or compromised service becomes root through them",
+			})
+		}
+		if len(accounts) > 0 {
+			out = append(out, Finding{
+				CheckID:  "FS-003",
+				Severity: High,
+				Title:    "Accounts other than root can change files that root runs",
+				Detail:   joinSome(accounts, 5) + note,
+				Fix:      "Make these files and every directory above them owned by root and writable only by root (chown root:root, chmod go-w); the accounts named can become root by editing them",
+			})
+		}
+		return out, ""
+	},
+}
+
+// joinSome joins up to max entries that contain commas themselves.
+func joinSome(entries []string, max int) string {
+	if len(entries) <= max {
+		return strings.Join(entries, "; ")
+	}
+	return strings.Join(entries[:max], "; ") + fmt.Sprintf("; and %d more", len(entries)-max)
 }
 
 func inUserWritablePlace(p string) bool {

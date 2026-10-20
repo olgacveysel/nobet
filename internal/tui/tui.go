@@ -12,6 +12,7 @@ import (
 
 	"github.com/olgacveysel/nobet/internal/brand"
 	"github.com/olgacveysel/nobet/internal/checks"
+	"github.com/olgacveysel/nobet/internal/keys"
 	"github.com/olgacveysel/nobet/internal/rootmap"
 	"github.com/olgacveysel/nobet/internal/scan"
 )
@@ -22,9 +23,11 @@ import (
 type Scanner func(report func(i int, r scan.HostResult))
 
 // Run shows the TUI while scanner runs, and returns the results of every
-// host that finished before the user quit.
-func Run(names []string, scanner Scanner) ([]scan.HostResult, error) {
+// host that finished before the user quit. owners (may be nil) names the
+// keys in the root access view.
+func Run(names []string, owners *keys.Owners, scanner Scanner) ([]scan.HostResult, error) {
 	m := model{
+		owners:  owners,
 		names:   names,
 		results: make([]scan.HostResult, len(names)),
 		done:    make([]bool, len(names)),
@@ -59,6 +62,7 @@ type (
 )
 
 type model struct {
+	owners   *keys.Owners
 	names    []string
 	results  []scan.HostResult
 	done     []bool
@@ -409,6 +413,9 @@ func (m model) rootLines(w int) []string {
 		}
 	}
 	rm := rootmap.Build(results)
+	if m.owners.Loaded() {
+		rm.SetOwners(m.owners.Path, m.owners.Owner)
+	}
 
 	add(styleBold.Render("Root access by SSH key"), 0)
 	if !m.finished {
@@ -420,10 +427,7 @@ func (m model) rootLines(w int) []string {
 		lines = append(lines, "")
 	}
 	for _, k := range rm.Keys {
-		label := k.Fingerprint + "  " + strings.TrimPrefix(k.Type, "ssh-")
-		if len(k.Comments) > 0 {
-			label += "  " + strings.Join(k.Comments, ", ")
-		}
+		label := k.Label(rm.OwnersFile)
 		add(styleCursor.Render(label), 0)
 		n := k.Hosts()
 		st := styleDim

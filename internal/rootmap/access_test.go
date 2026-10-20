@@ -22,6 +22,7 @@ func accessFacts(sshd map[string][]string) *collect.Facts {
 			{Name: "bob", GID: 1001},
 			{Name: "sshusers", GID: 2000, Members: []string{"alice"}},
 		},
+		RootWritable: []collect.WritablePath{},
 	}
 }
 
@@ -158,5 +159,61 @@ func TestRoutesWithPasswordStates(t *testing.T) {
 	f.Shadow = []collect.ShadowEntry{{User: "root", Password: collect.PasswordSet, Expired: true}}
 	if routes, _ := Routes(f); len(routes["root"]) != 0 {
 		t.Errorf("expired root: %+v", routes["root"])
+	}
+}
+
+func TestRoutesThroughWritableFiles(t *testing.T) {
+	f := accessFacts(map[string][]string{"permitrootlogin": {"no"}})
+	f.IsRoot = true
+	f.SudoRights = map[string][]collect.SudoEntry{}
+	f.Passwd = append(f.Passwd, collect.PasswdEntry{Name: "www-data", UID: 33, GID: 33, Shell: "/usr/sbin/nologin"})
+	f.Passwd[1].Shell, f.Passwd[2].Shell = "/bin/bash", "/bin/bash"
+	f.RootWritable = []collect.WritablePath{
+		{Kind: "cron", Source: "/etc/cron.d/app", Path: "/opt/app/run.sh", Writers: []collect.Writer{{Account: "alice", Path: "/opt/app", How: "owner"}, {Account: "uid 4242", Path: "/opt/app/run.sh", How: "owner"}}},
+		{Kind: "systemd", Source: "web.service", Path: "/var/www/start", Writers: []collect.Writer{{Account: "www-data", Path: "/var/www", How: "owner"}}},
+		{Kind: "startup", Source: "root's shell startup files", Path: "/etc/profile.d/x.sh", Writers: []collect.Writer{{Everyone: true, Path: "/etc/profile.d/x.sh", How: "world-writable"}}},
+	}
+	routes, gaps := Routes(f)
+	got := map[string]string{}
+	for u, rs := range routes {
+		got[u] = routeText(rs)
+	}
+	want := map[string]string{
+		"alice":    "changes /opt/app/run.sh, used by root's cron (/etc/cron.d/app); changes world-writable /etc/profile.d/x.sh, run by root's login shells",
+		"bob":      "changes world-writable /etc/profile.d/x.sh, run by root's login shells",
+		"www-data": "changes /var/www/start, used by web.service, which runs as root", // a service account: no login, but its service can
+	}
+	for u, w := range want {
+		if got[u] != w {
+			t.Errorf("%s: got %q\nwant %q", u, got[u], w)
+		}
+	}
+	if len(got) != len(want) {
+		t.Errorf("routes for %v, want only %v", got, want)
+	}
+	for _, g := range gaps {
+		if strings.Contains(g, "files root runs") {
+			t.Errorf("unexpected gap %q", g)
+		}
+	}
+
+	f.RootWritable = nil
+	f.Errors = map[string]string{"root-jobs": "timeout"}
+	if _, gaps := Routes(f); !strings.Contains(strings.Join(gaps, "|"), "files root runs were not checked (timeout)") {
+		t.Errorf("gaps = %q", gaps)
+	}
+}
+
+func TestFileRoutesCapped(t *testing.T) {
+	f := accessFacts(nil)
+	f.IsRoot = true
+	f.SudoRights = map[string][]collect.SudoEntry{}
+	for _, p := range []string{"/a", "/b", "/c", "/d", "/e"} {
+		f.RootWritable = append(f.RootWritable, collect.WritablePath{Kind: "cron", Source: "/etc/crontab", Path: p,
+			Writers: []collect.Writer{{Account: "alice", Path: p, How: "owner"}}})
+	}
+	routes, _ := Routes(f)
+	if rs := routes["alice"]; len(rs) != 4 || rs[3].Via != "changes 2 more files root runs (see FS-003)" {
+		t.Errorf("got %+v", rs)
 	}
 }

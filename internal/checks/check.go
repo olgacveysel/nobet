@@ -99,7 +99,9 @@ func All() []Check {
 		pendingSecurityUpdates,
 		rebootRequired,
 		staleUpdateLists,
+		osSupport,
 		suidFiles,
 		worldWritable,
+		rootWritable,
 	}
 }

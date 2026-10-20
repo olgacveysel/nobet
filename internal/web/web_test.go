@@ -238,3 +238,30 @@ func TestAgo(t *testing.T) {
 		}
 	}
 }
+
+// The keys file is read on every view of the root page.
+func TestRootPageOwners(t *testing.T) {
+	dir := t.TempDir()
+	history(t, dir)
+	keysFile := filepath.Join(t.TempDir(), "keys")
+	if err := os.WriteFile(keysFile, []byte("alice SHA256:+DiY3wvvV6TuJJhbpZisF/zLDA0zPMSvHdkr4UvCOqU\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s, err := New(Options{HistoryDir: dir, Version: "test", Now: func() time.Time { return now }, KeysFile: keysFile})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := s.Handler()
+	body := get(t, h, "GET", "/root").Body.String()
+	for _, want := range []string{"Key owners come from <code>" + keysFile, "2 key(s) with root access have no owner", "no known owner"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("root page lacks %q", want)
+		}
+	}
+	if err := os.WriteFile(keysFile, []byte("alice not-a-key\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if body := get(t, h, "GET", "/root").Body.String(); !strings.Contains(body, "<b>keys file</b>: "+keysFile+": line 1") {
+		t.Errorf("a broken keys file should show as incomplete:\n%s", body)
+	}
+}

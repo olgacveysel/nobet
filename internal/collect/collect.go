@@ -6,6 +6,7 @@ package collect
 import (
 	"bufio"
 	"encoding/base64"
+	"fmt"
 	"sort"
 	"strconv"
 	"strings"
@@ -153,25 +154,33 @@ type WritableEntry struct {
 // Facts is everything collected from one host. A nil field means the data
 // could not be collected; the reason is in Errors.
 type Facts struct {
-	IsRoot       bool                    // connected as root
-	SudoOK       bool                    // passwordless sudo available
-	OSRelease    map[string]string       // /etc/os-release
-	SSHD         map[string][]string     // effective config from `sshd -T`, keys lowercased; empty if sshd is not installed
-	SSHDMatch    []SSHDContext           // where Match blocks change SSHD; nil if there are none or they could not be evaluated
-	Sudoers      []SudoLine              // raw sudoers lines
-	SudoRights   map[string][]SudoEntry  // per user, as resolved by sudo itself
-	SudoDefaults map[string]SudoDefaults // per user: the authentication Defaults sudo applies
-	Passwd       []PasswdEntry
-	Groups       []GroupEntry
-	Shadow       []ShadowEntry // password states, root only
-	AuthKeys     []AuthKey
-	Listeners    []Listener
-	Updates      *Updates
-	Reboot       *Reboot
-	Firewall     *Firewall
-	SUID         []SUIDFile
-	Writable     []WritableEntry
-	Errors       map[string]string // collector name -> why it failed
+	IsRoot          bool                    // connected as root
+	SudoOK          bool                    // passwordless sudo available
+	OSRelease       map[string]string       // /etc/os-release
+	ExtendedSupport []string                // Ubuntu Pro ESM services set up (esm-infra, esm-apps); nil if not Ubuntu or unreadable
+	SSHD            map[string][]string     // effective config from `sshd -T`, keys lowercased; empty if sshd is not installed
+	SSHDMatch       []SSHDContext           // where Match blocks change SSHD; nil if there are none or they could not be evaluated
+	Sudoers         []SudoLine              // raw sudoers lines
+	SudoRights      map[string][]SudoEntry  // per user, as resolved by sudo itself
+	SudoDefaults    map[string]SudoDefaults // per user: the authentication Defaults sudo applies
+	Passwd          []PasswdEntry
+	Groups          []GroupEntry
+	Shadow          []ShadowEntry // password states, root only
+	AuthKeys        []AuthKey
+	Listeners       []Listener
+	Updates         *Updates
+	Reboot          *Reboot
+	Firewall        *Firewall
+	SUID            []SUIDFile
+	Writable        []WritableEntry
+	// Files root runs or trusts that other accounts can change; nil if not
+	// collected (root only). Only this result is kept in the scan history:
+	// the listing it comes from is large.
+	RootWritable []WritablePath
+	RootJobs     []RootJob            `json:"-"` // what root runs or trusts
+	Paths        map[string]PathEntry `json:"-"` // owner and mode of RootJobs' paths and the directories above them
+	Links        map[string]string    `json:"-"` // symlinks among those paths, to their targets
+	Errors       map[string]string    // collector name -> why it failed
 }
 
 // Privileged reports whether root-only data could be collected.
@@ -285,6 +294,13 @@ func Collect(r runner.Runner) *Facts {
 	if out, ok := run("os-release", "cat /etc/os-release"); ok {
 		f.OSRelease = parseOSRelease(out)
 	}
+	if f.OSRelease["ID"] == "ubuntu" {
+		if out, ok := run("esm", script(esmScript, false)); ok {
+			if f.ExtendedSupport = parseESM(out); f.ExtendedSupport == nil {
+				f.Errors["esm"] = "the ESM source check stopped early"
+			}
+		}
+	}
 	if out, ok := run("passwd", "cat /etc/passwd"); ok {
 		f.Passwd = parsePasswd(out)
 	}
@@ -314,7 +330,7 @@ func Collect(r runner.Runner) *Facts {
 	// users' keys and sudo rights are only fully readable as root; partial
 	// data would look complete, so skip them entirely otherwise.
 	if !f.Privileged() {
-		for _, name := range []string{"sudoers", "shadow", "firewall", "files", "authkeys", "sudo-rights"} {
+		for _, name := range []string{"sudoers", "shadow", "firewall", "files", "authkeys", "sudo-rights", "root-jobs"} {
 			f.Errors[name] = "needs root or passwordless sudo"
 		}
 		return f
@@ -343,6 +359,7 @@ func Collect(r runner.Runner) *Facts {
 	if out, ok := run("sudo-rights", script(sudoRightsScript, true)); ok {
 		f.SudoRights, f.SudoDefaults = parseSudoRights(out)
 	}
+	f.collectRootPaths(func(name, body string) (string, bool) { return run(name, script(body, true)) })
 
 	// Match blocks: ask sshd what applies to each root-capable account and
 	// from each address range the blocks name.
@@ -365,6 +382,37 @@ func Collect(r runner.Runner) *Facts {
 	return f
 }
 
+// collectRootPaths lists what root runs or trusts, then the owner and mode
+// of every file involved and the directories above them, and keeps the
+// ones other accounts can change in RootWritable. Needs SudoRights, Passwd
+// and Groups first.
+func (f *Facts) collectRootPaths(run func(name, body string) (string, bool)) {
+	out, ok := run("root-jobs", rootJobsScript)
+	if !ok {
+		return
+	}
+	jobs := parseRootJobs(out)
+	if jobs == nil {
+		f.Errors["root-jobs"] = "the listing of what root runs stopped early"
+		return
+	}
+	jobs = append(jobs, sudoJobs(f)...)
+	paths, truncated := rootPaths(jobs)
+	if out, ok = run("root-paths", pathsScript(paths)); !ok {
+		return
+	}
+	entries, links := parsePaths(out)
+	if entries == nil {
+		f.Errors["root-paths"] = "the file permission listing stopped early"
+		return
+	}
+	f.RootJobs, f.Paths, f.Links = jobs, entries, links
+	f.RootWritable = f.writablePaths()
+	if truncated {
+		f.Errors["root-paths"] = fmt.Sprintf("only the first %d paths were checked", maxRootPaths)
+	}
+}
+
 func parseOSRelease(s string) map[string]string {
 	m := map[string]string{}
 	for _, line := range lines(s) {
@@ -373,6 +421,21 @@ func parseOSRelease(s string) map[string]string {
 		}
 	}
 	return m
+}
+
+// parseESM reads esmScript output. Without the closing "end" the list may
+// be cut short, so it counts as not collected.
+func parseESM(s string) []string {
+	out := []string{}
+	for _, line := range lines(s) {
+		switch line {
+		case "end":
+			return out
+		case "esm-infra", "esm-apps":
+			out = append(out, line)
+		}
+	}
+	return nil
 }
 
 func parsePasswd(s string) []PasswdEntry {

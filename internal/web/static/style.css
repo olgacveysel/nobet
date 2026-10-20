@@ -102,3 +102,4 @@ section.key table { margin-top: 8px; }
   .top .meta { margin-left: 0; width: 100%; }
   h1 { font-size: 20px; }
 }
+.unclaimed { color: var(--amber); font-weight: 600; }

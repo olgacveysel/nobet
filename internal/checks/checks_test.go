@@ -339,3 +339,31 @@ func TestSudoShellEscapeLockedPassword(t *testing.T) {
 		t.Errorf("expired accounts cannot use sudo: %+v", got)
 	}
 }
+
+func TestRootWritable(t *testing.T) {
+	f := &collect.Facts{IsRoot: true, Errors: map[string]string{}, RootWritable: []collect.WritablePath{
+		{Kind: "cron", Source: "/etc/cron.d/app", Path: "/opt/app/run.sh", Writers: []collect.Writer{{Account: "deploy", Path: "/opt/app", How: "owner"}}},
+		{Kind: "startup", Source: "root's shell startup files", Path: "/etc/profile.d/x.sh", Writers: []collect.Writer{{Everyone: true, Path: "/etc/profile.d/x.sh", How: "world-writable"}}},
+	}}
+	got, skip := rootWritable.Run(f)
+	if skip != "" || len(got) != 2 {
+		t.Fatalf("got %+v, skip %q", got, skip)
+	}
+	if got[0].Severity != Critical || got[0].Detail != "/etc/profile.d/x.sh run by root's login shells: /etc/profile.d/x.sh is world-writable" {
+		t.Errorf("world-writable: %+v", got[0])
+	}
+	if got[1].Severity != High || got[1].Detail != "/opt/app/run.sh used by root's cron (/etc/cron.d/app): deploy owns /opt/app" {
+		t.Errorf("account: %+v", got[1])
+	}
+
+	if got, _ := rootWritable.Run(&collect.Facts{IsRoot: true, RootWritable: []collect.WritablePath{}}); len(got) != 0 {
+		t.Errorf("nothing writable: got %+v", got)
+	}
+	if _, skip := rootWritable.Run(&collect.Facts{}); !strings.Contains(skip, "needs root") {
+		t.Errorf("unprivileged: skip %q", skip)
+	}
+	partial := &collect.Facts{IsRoot: true, RootWritable: []collect.WritablePath{}, Errors: map[string]string{"root-paths": "only the first 1500 paths were checked"}}
+	if got, skip := rootWritable.Run(partial); len(got) != 0 || !strings.Contains(skip, "only partly checked") {
+		t.Errorf("partial: got %+v, skip %q", got, skip)
+	}
+}

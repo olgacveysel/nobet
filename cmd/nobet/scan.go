@@ -10,6 +10,7 @@ import (
 	"github.com/olgacveysel/nobet/internal/allow"
 	"github.com/olgacveysel/nobet/internal/checks"
 	"github.com/olgacveysel/nobet/internal/drift"
+	"github.com/olgacveysel/nobet/internal/keys"
 	"github.com/olgacveysel/nobet/internal/report"
 	"github.com/olgacveysel/nobet/internal/scan"
 	"github.com/olgacveysel/nobet/internal/store"
@@ -29,6 +30,7 @@ func runScan(args []string) int {
 	noSave := fs.Bool("no-save", false, "do not save this scan to the history used by 'nobet diff'")
 	histDir := addHistoryFlag(fs)
 	htmlPath := fs.String("html", "", "also write a self-contained HTML report (findings and root access map) to this file")
+	keysPath := addKeysFlag(fs)
 	fs.BoolVar(jsonOut, "j", false, "shorthand for -json")
 	fs.BoolVar(plain, "p", false, "shorthand for -plain")
 	fs.StringVar(failOn, "f", "high", "shorthand for -fail-on")
@@ -59,13 +61,18 @@ func runScan(args []string) int {
 		fmt.Fprintln(os.Stderr, "nobet: allowlist:", err)
 		return exitUsage
 	}
+	owners, err := loadKeys(*keysPath)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "nobet: keys:", err)
+		return exitUsage
+	}
 	started := time.Now()
 
 	var results []scan.HostResult
 	tuiMode := !*jsonOut && !*plain && isTerminal(os.Stdout) && isTerminal(os.Stdin)
 	if tuiMode {
 		names := t.names()
-		results, err = tui.Run(names, func(report func(int, scan.HostResult)) {
+		results, err = tui.Run(names, owners, func(report func(int, scan.HostResult)) {
 			t.run(func(i int, r scan.HostResult) {
 				allowList.Apply(&r)
 				report(i, r)
@@ -95,7 +102,7 @@ func runScan(args []string) int {
 	}
 
 	if *htmlPath != "" {
-		if err := writeHTML(*htmlPath, results, started); err != nil {
+		if err := writeHTML(*htmlPath, results, started, owners); err != nil {
 			fmt.Fprintln(os.Stderr, "nobet: writing HTML report:", err)
 		} else if !*jsonOut {
 			fmt.Printf("HTML report written to %s\n", *htmlPath)
@@ -115,16 +122,30 @@ func runScan(args []string) int {
 
 // writeHTML writes the HTML report. The file is 0600 because it lists
 // security weaknesses and access paths.
-func writeHTML(p string, results []scan.HostResult, at time.Time) error {
+func writeHTML(p string, results []scan.HostResult, at time.Time, owners *keys.Owners) error {
 	f, err := os.OpenFile(p, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err != nil {
 		return err
 	}
-	if err := report.HTML(f, results, report.HTMLMeta{Generated: at, Version: version}); err != nil {
+	if err := report.HTML(f, results, report.HTMLMeta{Generated: at, Version: version, Owners: owners}); err != nil {
 		f.Close()
 		return err
 	}
 	return f.Close()
+}
+
+// addKeysFlag adds -keys, the file that names the owners of SSH keys.
+func addKeysFlag(fs *flag.FlagSet) *string {
+	return fs.String("keys", "", "file naming who each SSH key belongs to, for the root access map (default: "+displayPath(keys.DefaultPath())+" if it exists)")
+}
+
+// loadKeys loads an explicit keys file (which must exist) or the default
+// one (which is optional).
+func loadKeys(p string) (*keys.Owners, error) {
+	if p != "" {
+		return keys.Load(p, true)
+	}
+	return keys.Load(keys.DefaultPath(), false)
 }
 
 // loadAllowlist loads an explicit allowlist (which must exist) or the

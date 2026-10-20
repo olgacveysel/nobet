@@ -22,10 +22,11 @@ internal/transport/ Local (/bin/sh) and SSH runners (agent incl. Windows pipe, k
 internal/fleet/     Local/Remote scans: the only package that connects to hosts; CLI only
 internal/sshconf/   ~/.ssh/config (or -F file) resolution via kevinburke/ssh_config
 internal/inventory/ [user@]host[:port] parsing; Port 0 / User "" mean "not given"
-internal/collect/   Facts + collector shell scripts (scripts.go) + parsers
-internal/checks/    Check{ID, Title, Run(facts) (findings, skip)}; registry in check.go All()
+internal/collect/   Facts + collector shell scripts (scripts.go) + parsers; rootjobs.go (what root runs, who can change it), cmdline.go (command line -> files it runs)
+internal/checks/    Check{ID, Title, Run(facts) (findings, skip)}; registry in check.go All(); eol_data.go is generated (eolgen, from endoflife.date)
 internal/scan/      HostResult (Facts kept, json:"-") and Evaluate(facts -> findings)
 internal/allow/     allowlist (check-id host-glob [match] # reason)
+internal/keys/      keys file: who owns which SSH key (owner fingerprint-or-pubkey # note), for rootmap names and -who
 internal/store/     scan history in ~/.local/share/nobet/scans or $NOBET_DATA_DIR/scans (0700/0600; 0640 in a group-readable dir; keep 100)
 internal/drift/     changes between two snapshots of a host
 internal/rootmap/   fleet-wide "who can become root where", grouped by SSH key
@@ -47,9 +48,11 @@ docs/logo/          SVG logos, favicon
 - **nil vs empty matters.** A nil Facts field means "could not collect" and the check must return a skip reason; an empty slice means "collected, nothing there". Never let missing data look like a pass.
 - **Scripts must not hide unreadable data.** A script that ends in `true` succeeds even when nothing was readable; gate it on privilege or print a marker (see `nocache=` for dnf5). `Facts.SSHD` is nil when unreadable and an empty map when sshd is not installed (`NoSSHD`).
 - **sshd views.** `Facts.SSHD` is the config for an arbitrary account from TEST-NET-1; `SSHDMatch` holds per-account/per-address differences. Read sshd settings through `SSHDViews`/`LoginAllowed`, not `f.SSHD` directly, so Match blocks count.
-- **Never collect secrets.** The shadow collector prints only set/empty/locked; a test asserts no `$` reaches the output. Anything put into a generated script must be validated first (see `safeUser`).
+- **Never collect secrets.** The shadow collector prints only set/empty/locked; a test asserts no `$` reaches the output. Anything put into a generated script must be validated first (see `safeUser`, `safePath`).
 - **Privilege gating.** Data that is only complete as root (other users' keys, sudo rights, firewall, SUID/world-writable) is skipped entirely without privilege rather than collected partially.
 - **Drift compares like with like.** Root/key changes only when both scans were privileged.
+- **Keep the history small.** Snapshots store Facts, so bulky raw listings stay out of JSON (`json:"-"`) and only their result is kept: `RootJobs`/`Paths`/`Links` (hundreds of entries per host) are dropped, `RootWritable` (usually empty) is stored.
+- **Who can change a file** (`Facts.Writers`): its owner, its group's members and everyone if writable, and the same for every directory above it; a sticky directory protects existing entries; a symlink's own mode means nothing, and a path through a symlinked directory (`/sbin -> usr/sbin`) is resolved. Check new path logic against merged-/usr distros and Alpine (`/var/spool/cron/crontabs` is a symlink there).
 - **Every parser has a test** with realistic sample output. Add one for every new collector. Where the logic is in awk, run the real script in the test (see `TestShadowScript`, `TestZypperScript`).
 - **Verify against real systems.** Distro behavior is easy to guess wrong (dnf5/apk/zypper exit 0 with no cache; CentOS 7's root password field is `locked`). Throwaway containers (`docker run --rm -v nobet:/nobet:ro <image>`) running the static binary are the quick check.
 - **Severities:** Critical = direct path to root for anyone; High = serious exposure; Medium = should fix; Low = hardening; Info = context.
@@ -73,13 +76,15 @@ Decided by the maintainer on 2026-10-14:
 
 - Module `github.com/olgacveysel/nobet`; `.goreleaser.yaml` has homepage and maintainer (Veysel <olgacveysel@gmail.com>). `goreleaser check` and a snapshot release pass.
 - Repo github.com/olgacveysel/nobet, default branch `master`. CI runs on pushes to `master`, pull requests and manual dispatch (`gh workflow run ci`); every push to `master` also uploads test packages (the `packages` artifact, kept 14 days).
-- To release: date the CHANGELOG entry, then `git tag -a vX.Y.Z -m vX.Y.Z && git push origin vX.Y.Z`; the release workflow does the rest. A tag with a suffix (`-beta.1`, `-rc.1`) becomes a pre-release.
+- To release: refresh the OS support dates (`go generate ./internal/checks`, which rewrites `eol_data.go` from endoflife.date; review the diff), date the CHANGELOG entry, then `git tag -a vX.Y.Z -m vX.Y.Z && git push origin vX.Y.Z`; the release workflow does the rest. A tag with a suffix (`-beta.1`, `-rc.1`) becomes a pre-release.
 - Pre-release packages are versioned `0.1.0~beta.1` so they sort before `0.1.0` and upgrade cleanly; GitHub shows the `~` as `.` in asset names.
+- The release workflow also signs `checksums.txt` (cosign keyless, `*.sigstore.json` bundle), writes an SBOM per archive (syft), and after the GitHub release pushes `ghcr.io/olgacveysel/nobet-{scanner,web}` for amd64 and arm64 (signed, SBOM and provenance attached; pre-releases get only their version tag). Snapshots must pass `--skip=sign`: goreleaser does not skip signing in snapshot mode, and cosign would start an interactive login. New GHCR packages can start out private: after the first image release, check that both are public (package settings).
+- Dependabot opens weekly grouped PRs for Go modules, Actions and base images; CI also runs weekly so govulncheck sees new advisories.
 - v0.1.0-beta.1 was released on 2026-10-14. CI never ran for it: the workflow listened on `main` until 2026-10-19.
 
 ## Roadmap (next)
 
-- v0.1.0: get CI green on `master`; test the beta on real servers (firewalls, /boot kernels and real package states never appear in the container lab); fix what turns up, then tag v0.1.0
-- Publish container images to GHCR from the release workflow (compose builds locally for now)
-- Sign release artifacts (cosign) and publish an SBOM
+- v0.1.0: test on real servers (firewalls, /boot kernels and real package states never appear in the container lab); tag v0.1.0-beta.2 first to exercise image publishing and signing (the release workflow's new jobs have only run locally), fix what turns up, then tag v0.1.0
 - nobet-web v2: OIDC login, read-only role, audit log of who viewed what (see design decisions)
+- Candidates (2026-10-19 list): Prometheus `/metrics` in nobet-web (findings per host and severity, scan age); alerts on changes through a `-on-change <command>` hook (the CLI must not link net/http); weak sshd ciphers/MACs/KEX (already in `sshd -T`); Docker API on TCP without TLS; sysctl hardening; automatic updates disabled; accounts with keys that have not logged in for months; Ansible inventory as `-i` input with host groups; CIS Benchmark IDs in the HTML report
+- FS-003 follow-ups: shebang interpreters and files a script sources; root's own PATH directories (only crontab PATH= is checked); `Exec` lines with the `+` prefix in services that run as another user

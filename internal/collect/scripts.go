@@ -128,6 +128,17 @@ done
 true
 `
 
+// Ubuntu only: prints the Ubuntu Pro ESM services whose apt sources are
+// set up (the Pro client removes them when a service is disabled), then
+// "end". The directory is world-readable, so no privilege is needed.
+const esmScript = `d=/etc/apt/sources.list.d
+[ -d "$d" ] || exit 1
+for s in esm-infra esm-apps; do
+  if [ -f "$d/ubuntu-$s.sources" ] || [ -f "$d/ubuntu-$s.list" ]; then echo "$s"; fi
+done
+echo end
+`
+
 // Prints "user<TAB>file<TAB>key line" for every authorized key of every
 // account, from the files sshd's AuthorizedKeysFile names (%h, %u, %U and
 // %% expanded; relative paths are under the home directory). Needs root to

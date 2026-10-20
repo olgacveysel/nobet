@@ -28,6 +28,7 @@ func TestBuild(t *testing.T) {
 			{User: "root", Fingerprint: fpLaptop, Type: "ssh-ed25519", Comment: "veysel@laptop"},
 			{User: "deploy", Fingerprint: fpLaptop, Type: "ssh-ed25519", Comment: "veysel@laptop"},
 		},
+		RootWritable: []collect.WritablePath{},
 	}
 	db := &collect.Facts{
 		SSHD:       map[string][]string{"permitrootlogin": {"no"}},
@@ -38,6 +39,7 @@ func TestBuild(t *testing.T) {
 			{User: "root", Fingerprint: fpLaptop, Type: "ssh-ed25519"}, // useless: PermitRootLogin no
 			{User: "ops", Fingerprint: "SHA256:ci", Type: "ssh-ed25519", Options: []string{`from="10.0.0.5"`}},
 		},
+		RootWritable: []collect.WritablePath{},
 	}
 
 	m := Build([]scan.HostResult{
@@ -79,17 +81,18 @@ func TestBuild(t *testing.T) {
 
 func TestRoutesWithoutSSHD(t *testing.T) {
 	f := &collect.Facts{
-		SSHD:       map[string][]string{}, // sshd not installed
-		Passwd:     []collect.PasswdEntry{{Name: "root", UID: 0}},
-		Groups:     []collect.GroupEntry{},
-		SudoRights: map[string][]collect.SudoEntry{},
+		SSHD:         map[string][]string{}, // sshd not installed
+		Passwd:       []collect.PasswdEntry{{Name: "root", UID: 0}},
+		Groups:       []collect.GroupEntry{},
+		SudoRights:   map[string][]collect.SudoEntry{},
+		RootWritable: []collect.WritablePath{},
 	}
 	routes, gaps := Routes(f)
 	if len(routes) != 0 || len(gaps) != 0 {
 		t.Errorf("no sshd: routes %+v, gaps %v; want none", routes, gaps)
 	}
 
-	if _, gaps := Routes(&collect.Facts{SSHD: map[string][]string{}, Groups: []collect.GroupEntry{}, SudoRights: map[string][]collect.SudoEntry{}}); len(gaps) != 1 {
+	if _, gaps := Routes(&collect.Facts{SSHD: map[string][]string{}, Groups: []collect.GroupEntry{}, SudoRights: map[string][]collect.SudoEntry{}, RootWritable: []collect.WritablePath{}}); len(gaps) != 1 {
 		t.Errorf("missing passwd should be a gap, got %v", gaps)
 	}
 }

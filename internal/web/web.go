@@ -21,6 +21,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/olgacveysel/nobet/internal/keys"
 	"github.com/olgacveysel/nobet/internal/rootmap"
 	"github.com/olgacveysel/nobet/internal/scan"
 )
@@ -34,6 +35,7 @@ type Options struct {
 	Version    string        // shown in the footer
 	StaleAfter time.Duration // hosts without a successful scan for this long are flagged
 	UserHeader string        // header an authenticating proxy sets to the user name; logged only
+	KeysFile   string        // names the owners of SSH keys on the root page; read on each view, "" for none
 	Log        *log.Logger   // request log; nil for none
 	Now        func() time.Time
 }
@@ -298,7 +300,16 @@ func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	s.render(w, http.StatusOK, "root", rootPage{page: s.page(ix, "Root access", "root"), Map: ix.rootMap(), Empty: len(ix.hosts) == 0})
+	m := ix.rootMap()
+	if s.opts.KeysFile != "" {
+		// Read on every view, so edits show up without a restart.
+		if owners, err := keys.Load(s.opts.KeysFile, true); err != nil {
+			m.Gaps = append(m.Gaps, rootmap.Gap{Host: "keys file", Reason: err.Error()})
+		} else {
+			m.SetOwners(owners.Path, owners.Owner)
+		}
+	}
+	s.render(w, http.StatusOK, "root", rootPage{page: s.page(ix, "Root access", "root"), Map: m, Empty: len(ix.hosts) == 0})
 }
 
 // index loads the history, answering with an error page when it cannot.

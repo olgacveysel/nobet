@@ -45,6 +45,8 @@
   .error { color: var(--critical); font-weight: 600; }
   .key { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px 16px; margin: 12px 0; break-inside: avoid-page; }
   .key .fp { word-break: break-all; }
+  .key .owner { font-family: inherit; }
+  .unclaimed { color: var(--amber); font-weight: 600; }
   footer { margin-top: 48px; color: var(--muted); font-size: 12px; border-top: 1px solid var(--line); padding-top: 12px; }
   @media print {
     body { background: #fff; font-size: 12px; }
@@ -115,11 +117,12 @@
 
 {{if .HasRoot}}
 <h2>Root access map</h2>
-<p class="note">Who can become root on which host, grouped by SSH key. Routes: direct UID 0 login (respecting PermitRootLogin), <code>sudo ALL</code> as resolved by sudo, and root-equivalent groups (docker, lxd, incus).</p>
+<p class="note">Who can become root on which host, grouped by SSH key. Routes: direct UID 0 login (respecting PermitRootLogin), sudo as resolved by sudo (including limited rules that escape to a shell), root-equivalent groups (docker, lxd, incus), and files root runs that the account can change.{{if .Root.OwnersFile}} Key owners come from <code>{{.Root.OwnersFile}}</code>.{{end}}</p>
 {{if not .Root.Keys}}<p>No SSH key leads to root on the scanned hosts.</p>{{end}}
+{{with .Root.Unclaimed}}<p class="unclaimed">{{len .}} key(s) with root access have no owner in the keys file.</p>{{end}}
 {{range .Root.Keys}}
 <div class="key">
-  <div class="fp mono"><b>{{.Fingerprint}}</b> · {{.Type}}{{range .Comments}} · {{.}}{{end}}</div>
+  <div class="fp mono">{{if .Owner}}<b class="owner">{{.Owner}}</b> · {{else if $.Root.OwnersFile}}<span class="unclaimed">no known owner</span> · {{end}}<b>{{.Fingerprint}}</b> · {{.Type}}{{range .Comments}} · {{.}}{{end}}</div>
   <div class="note">root on {{.Hosts}} host(s)</div>
   <table>
     <thead><tr><th>Host</th><th>As user</th><th>Route to root</th><th>Key restrictions</th></tr></thead>

@@ -18,10 +18,13 @@ nöbet audits Linux servers over SSH, or the machine it runs on, without install
 - SSH checks and rootmap evaluate `Match` blocks and say where a setting applies (`from 10.0.0.0/8`, `for deploy`).
 - Network: databases and admin APIs on all interfaces, missing host firewall.
 - Updates: pending security updates (apt, dnf, dnf5, yum, zypper; every pending update for apk, which does not label security fixes), reboot required, stale package indexes for every manager.
+- OS end of support (UPD-004): past or within 180 days, for 13 distributions, with Ubuntu Pro ESM detected; dates from endoflife.date, built in.
 - Files: SUID shells and interpreters, SUID files in temporary or home directories or outside any package, world-writable system paths.
+- Files root runs that other accounts can change (FS-003): cron jobs, run-parts scripts, systemd services running as root, root's shell startup files, programs named in sudo rules, and account/sudo/loader configuration; each account found is a route in `nobet rootmap`.
 
 **Access and change tracking**
 - `nobet rootmap`: who can become root on which host and how, grouped by SSH key; follows `AuthorizedKeysFile`, applies `AllowUsers`/`DenyUsers`/`AllowGroups`/`DenyGroups`, account password states, and sudo's `rootpw`/`targetpw`/`!authenticate` Defaults per user, runas user and command.
+- Key owners (`-keys`, `~/.config/nobet/keys`): the root access map names who each key belongs to and flags keys with root access that nobody claims; `nobet rootmap -who alice` lists everything to revoke when someone leaves.
 - `nobet diff`: what changed since the previous scan (root routes, keys, accounts, password states, group memberships, SUID files, sshd settings, firewall, ports, findings).
 - Allowlist for reviewed findings, with reasons kept for audits.
 - Shared scan history: `-history-dir` or `NOBET_DATA_DIR`, with group-readable files in a directory an admin prepared for it.
@@ -32,6 +35,11 @@ nöbet audits Linux servers over SSH, or the machine it runs on, without install
 - Strict Content-Security-Policy (no scripts at all), no caching of pages, GET/HEAD only.
 - systemd units for a nightly scan under a service account and for the dashboard, in `contrib/systemd`.
 - Docker Compose: a scanner container that holds the SSH key and a distroless, read-only dashboard container (`compose.yaml`).
+
+**Releases**
+- Binaries for Linux, macOS and Windows; `nobet` and `nobet-web` deb, rpm and apk packages.
+- An SPDX SBOM per archive, and a keyless Sigstore signature over `checksums.txt` (from v0.1.0-beta.2).
+- Container images on ghcr.io (`nobet-scanner`, `nobet-web`) for amd64 and arm64, signed, with SBOM and build provenance; `compose.yaml` uses them and can pin a version (`NOBET_VERSION`).
 
 **Scale**
 - 50 hosts scan in about 10 seconds; history is read one scan at a time, so `nobet diff`, the post-scan summary and the dashboard stay around 25-30 MB even with 100 saved scans of 50 hosts.

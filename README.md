@@ -33,6 +33,17 @@ go install github.com/olgacveysel/nobet/cmd/nobet@latest
 
 To build from a checkout: `make test build` (builds `nobet` and `nobet-web`).
 
+### Verify a download
+
+Releases after v0.1.0-beta.1 come with an SPDX SBOM per archive (`*.sbom.json`) and a signed `checksums.txt`. The signature is keyless ([Sigstore](https://www.sigstore.dev/)): it proves the file was made by this repository's release workflow for a tag, and it is recorded in a public transparency log. With [cosign](https://docs.sigstore.dev/cosign/system_config/installation/):
+
+```bash
+cosign verify-blob checksums.txt --bundle checksums.txt.sigstore.json \
+  --certificate-identity-regexp '^https://github\.com/olgacveysel/nobet/\.github/workflows/release\.yml@refs/tags/v' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+sha256sum --ignore-missing -c checksums.txt
+```
+
 ## Usage
 
 ```bash
@@ -65,7 +76,7 @@ Short forms: `nobet s` for `scan`, `nobet r` for `rootmap`, `nobet d` for `diff`
 nobet rootmap -i hosts.txt
 ```
 
-`rootmap` answers "who can become root on which host, and how?" across your whole fleet. It combines every account's authorized SSH keys with its routes to root: direct UID 0 login (respecting `PermitRootLogin`), `sudo ALL` as resolved by sudo itself (`sudo -l -U`, so aliases, includes and LDAP rules count), limited sudo rules that escape to a shell (`sudo vim`, `sudo less`, `sudo find`, see [GTFOBins](https://gtfobins.github.io)), and root-equivalent groups. Keys are read from the files sshd's `AuthorizedKeysFile` names, and a key only counts when sshd lets its account log in with it (`PubkeyAuthentication`, `AllowUsers`, `DenyUsers`, `AllowGroups`, `DenyGroups`). `Match` blocks count too: a route or key that sshd allows only from some networks says so (`UID 0 login from 10.0.0.0/8`). Password states from `/etc/shadow` and sudo's own Defaults refine the routes: a sudo rule that asks for a locked password, or for root's password (`rootpw`, `targetpw`, as on openSUSE), is no route at all, and one that asks for an empty password (or none, `!authenticate`) is free. Keys that come from `AuthorizedKeysCommand` or user certificates (`TrustedUserCAKeys`) cannot be listed; they are reported under INCOMPLETE. Results are grouped by SSH key, so a single key that opens root on many hosts stands out:
+`rootmap` answers "who can become root on which host, and how?" across your whole fleet. It combines every account's authorized SSH keys with its routes to root: direct UID 0 login (respecting `PermitRootLogin`), `sudo ALL` as resolved by sudo itself (`sudo -l -U`, so aliases, includes and LDAP rules count), limited sudo rules that escape to a shell (`sudo vim`, `sudo less`, `sudo find`, see [GTFOBins](https://gtfobins.github.io)), root-equivalent groups, and files root runs that the account can change (a cron job's script in a directory it owns, a service binary it can write, the program a sudo rule names; see FS-003). Keys are read from the files sshd's `AuthorizedKeysFile` names, and a key only counts when sshd lets its account log in with it (`PubkeyAuthentication`, `AllowUsers`, `DenyUsers`, `AllowGroups`, `DenyGroups`). `Match` blocks count too: a route or key that sshd allows only from some networks says so (`UID 0 login from 10.0.0.0/8`). Password states from `/etc/shadow` and sudo's own Defaults refine the routes: a sudo rule that asks for a locked password, or for root's password (`rootpw`, `targetpw`, as on openSUSE), is no route at all, and one that asks for an empty password (or none, `!authenticate`) is free. Keys that come from `AuthorizedKeysCommand` or user certificates (`TrustedUserCAKeys`) cannot be listed; they are reported under INCOMPLETE. Results are grouped by SSH key, so a single key that opens root on many hosts stands out:
 
 ```
 ROOT ACCESS BY SSH KEY
@@ -84,6 +95,24 @@ INCOMPLETE
 ```
 
 Use `-json` for machine-readable output. Full results need root or passwordless sudo on every host.
+
+#### Key owners and offboarding
+
+A key comment like `veysel@laptop` is whatever someone typed. To have the map name people reliably, list who owns which key in `~/.config/nobet/keys` (or pass `-keys FILE`; see [keys.example](keys.example)):
+
+```
+alice  SHA256:52JZmNfuKifllhTBswzRjmhmtxlcsa2aXf71Sl853cQ   # laptop
+alice  ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA... alice@desktop
+ci     SHA256:HRmMEMU9cyejr7STBxyzzOI4cfmC7Xkho7aTuOfNdNA   # deploy pipeline
+```
+
+Each key is then labelled with its owner, and keys that lead to root without an owner in the file are counted and marked `(no known owner)`. The same file names owners in the TUI's root view, the HTML report and `nobet-web -keys`. When someone leaves:
+
+```bash
+nobet rootmap -i hosts.txt -who alice
+```
+
+lists every host where Alice's keys reach root, any other key that reaches an account named `alice`, and `alice` accounts that can become root without a key. Without a keys file, `-who` matches key comments (`alice` or `alice@...`) instead.
 
 ### HTML report
 
@@ -131,7 +160,7 @@ For complete remote results, the SSH user should be root or have passwordless su
 
 **It is read-only by design.** It never scans, never connects to your servers and holds no SSH keys (its build is tested to contain no SSH client at all). A systemd timer runs `nobet scan` under a service account and saves to a shared history directory, which the dashboard only reads. If the dashboard were compromised, an attacker would learn your weaknesses but could not act on them.
 
-**It has no login of its own.** It listens on `127.0.0.1:8080` and belongs behind a reverse proxy that authenticates your team (oauth2-proxy, Authelia, Authentik, Pomerium or your SSO). If the proxy passes the signed-in user in a header, add `-user-header X-Forwarded-User` (or `Remote-User`, ...) to log who viewed which page. The root access map shows which key opens which server, so never expose the dashboard directly.
+**It has no login of its own.** It listens on `127.0.0.1:8080` and belongs behind a reverse proxy that authenticates your team (oauth2-proxy, Authelia, Authentik, Pomerium or your SSO). If the proxy passes the signed-in user in a header, add `-user-header X-Forwarded-User` (or `Remote-User`, ...) to log who viewed which page. `-keys /etc/nobet/keys` names key owners on the root access page (the file is read on every view). The root access map shows which key opens which server, so never expose the dashboard directly.
 
 Setup on the machine that scans (the units are in `contrib/systemd`; the packages also install them under `/usr/share/doc/nobet*/examples`):
 
@@ -176,10 +205,19 @@ cp hosts.example config/hosts                 # your hosts, one [user@]host[:por
 ssh-keygen -F web01 >> config/known_hosts     # each host's key, from a known_hosts you trust
 ssh-keygen -t ed25519 -N '' -C nobet-scan -f secrets/id_ed25519
 sudo chown 65532 secrets/id_ed25519           # readable by the containers' user only
-docker compose up -d --build
+docker compose up -d
 ```
 
 Optional files in `config/`: `allowlist`, and `ssh_config` for aliases and `ProxyJump`. The scanner logs each scan (`docker compose logs scanner`); `NOBET_INTERVAL=once` scans once and exits. `config/` and `secrets/` are git-ignored.
+
+Compose runs the release images `ghcr.io/olgacveysel/nobet-scanner` and `ghcr.io/olgacveysel/nobet-web` (amd64 and arm64). Pin a version with `NOBET_VERSION=0.1.0` in a `.env` file next to `compose.yaml` (the default is `latest`, which only moves on releases, not pre-releases); `docker compose up -d --build` builds both from the checkout instead. The images are signed the same way as the downloads, and carry an SBOM and build provenance:
+
+```bash
+cosign verify ghcr.io/olgacveysel/nobet-web:0.1.0 \
+  --certificate-identity-regexp '^https://github\.com/olgacveysel/nobet/\.github/workflows/release\.yml@refs/tags/v' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+docker buildx imagetools inspect ghcr.io/olgacveysel/nobet-web:0.1.0 --format '{{ json .SBOM }}'
+```
 
 ### Scale
 
@@ -202,11 +240,17 @@ Measured with 50 hosts (the size nöbet is built for): a full scan takes about 1
 | NET-002 | Medium / Low    | No host firewall filtering incoming traffic (ufw, firewalld, nftables, iptables); Medium when services are exposed |
 | FS-001  | Critical / High / Medium | SUID on programs that spawn a root shell (bash, find, vim, python…), SUID files in /tmp or home directories, SUID files not owned by any package |
 | FS-002  | High            | World-writable files, or world-writable directories without the sticky bit, in /etc, /usr, /bin, /sbin, /opt |
+| FS-003  | Critical / High | Files root runs or trusts that other accounts can change: Critical when anyone can, High when named accounts can (see below) |
 | UPD-001 | High / Medium   | Pending security updates (apt, dnf, dnf5, yum, zypper); High when the vendor rates any as critical or important. apk (Alpine) does not label security fixes, so there every pending update is reported, as Medium |
 | UPD-002 | Medium          | Reboot required: newer kernel installed than running, or a reboot flag file exists |
 | UPD-003 | Low             | Package indexes not refreshed for more than 7 days, so update counts may be incomplete (all supported package managers) |
+| UPD-004 | High / Low / Info | The OS release is past its end of support (High) or reaches it within 180 days (Low). Ubuntu hosts with Ubuntu Pro ESM (esm-infra) enabled are Info until ESM ends; for paid extended support elsewhere (RHEL ELS, SLES LTSS, Debian ELTS), allowlist the finding with that reason |
 
 Update checks only read the package manager's local cache. Nöbet never refreshes metadata or installs anything; when there is no cache to read, the check is skipped and tells you which command would create one.
+
+FS-003 follows what root runs: root's cron jobs (`/etc/crontab`, `/etc/cron.d`, root's crontab, anacron, and the scripts in `/etc/cron.daily` and the like or Alpine's `/etc/periodic`), systemd services that run as root (unit files, drop-ins and every `Exec` command), root's shell startup files, the programs sudo rules let someone run as root, and the account, sudo and dynamic loader configuration. From each command line it takes the programs and the scripts given to interpreters (`php /var/www/app/artisan`, `sh -c '...'`), not arguments or redirections, and leaves out commands that switch to another user (`sudo -u`, `su`). A file counts as changeable by an account that owns it or can write it, or that can write any directory above it (a sticky directory like `/tmp` protects what is already in it); symlinks are followed. The accounts found show up in the root access map, which lists up to three such files per account.
+
+UPD-004 knows Ubuntu, Debian (including its free LTS period) and Raspbian, RHEL, Rocky Linux, AlmaLinux, CentOS and CentOS Stream, Oracle Linux, Fedora, Alpine, openSUSE Leap, SLES and Amazon Linux. Support dates come from [endoflife.date](https://endoflife.date) and are built into each release; nöbet does not go online for them. Rolling releases are skipped. Nöbet never refreshes metadata or installs anything; when there is no cache to read, the check is skipped and tells you which command would create one.
 
 ## Exit codes
 
@@ -222,7 +266,8 @@ Update checks only read the package manager's local cache. Nöbet never refreshe
 - sshd `Match` blocks are evaluated with `sshd -T -C` for the accounts that can become root (and for an arbitrary account), connecting from anywhere and from one sample address per `Match Address` entry. `Match Host`, `LocalAddress` and `LocalPort` criteria and IPv6 address wildcards are not sampled, and keys are always read from the global `AuthorizedKeysFile`.
 - The account you scan with will show up in ACC-002 if it has passwordless sudo; add it to the allowlist.
 - `user@host` patterns in `AllowUsers` are treated as allowing the user from anywhere.
-- Shell-escape detection for limited sudo rules uses a built-in list of well-known programs; a custom script that runs other commands is not inspected.
+- Shell-escape detection for limited sudo rules uses a built-in list of well-known programs; a custom script that runs other commands is not inspected (though FS-003 reports it when someone other than root can change it).
+- FS-003 checks the files that command lines name with a path. Programs found through `PATH` are covered by checking the `PATH` directories a crontab sets, not root's own `PATH`; files a script sources or runs in turn, and libraries, are not followed.
 - sudo Defaults are honored as `sudo -l` reports them, for the user, per runas user (`Defaults>root targetpw`) and per command (`Defaults!/usr/bin/vim rootpw`); host-bound Defaults are taken as already applied by sudo.
 - SUID and world-writable checks search /bin, /sbin, /usr, /opt, /etc, /tmp, /var/tmp, /home, /root and /srv, without crossing filesystems; the rest of /var is skipped because container storage holds many copies of SUID binaries.
 - Local scanning is Linux-only; from macOS or Windows, scan hosts over SSH.
@@ -247,6 +292,9 @@ Update checks only read the package manager's local cache. Nöbet never refreshe
 - [x] Listening sockets without `ss` (reads /proc/net)
 - [x] sudo `rootpw`/`targetpw`/`!authenticate` in rootmap, including per-user, per-runas and per-command Defaults
 - [x] Docker Compose deployment (scanner + read-only dashboard)
+- [x] Signed releases with SBOMs; signed multi-arch container images on ghcr.io
+- [x] OS end of support (UPD-004), with Ubuntu Pro ESM detection
+- [x] Files root runs that other accounts can change (FS-003), as routes in the root access map
 - [x] `nobet-web`: read-only team dashboard over a shared scan history
 - [ ] `nobet-web`: built-in OIDC login with a read-only role, and an audit log of who viewed what
 

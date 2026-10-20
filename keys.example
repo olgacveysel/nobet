@@ -1,0 +1,14 @@
+# nöbet keys file: who each SSH key belongs to.
+#
+# Copy to ~/.config/nobet/keys (or pass -keys FILE). nobet rootmap, the TUI's
+# root view, the HTML report and nobet-web (-keys) then name each key's owner,
+# flag keys with root access that nobody claims, and answer
+# `nobet rootmap -who alice` when someone leaves.
+#
+# One key per line: the owner, then the key as a SHA256 fingerprint
+# (ssh-keygen -lf key.pub) or as a public key line from authorized_keys.
+# An owner can have any number of keys. Everything after a # is a note.
+
+alice  SHA256:52JZmNfuKifllhTBswzRjmhmtxlcsa2aXf71Sl853cQ   # laptop
+alice  ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl alice@desktop
+ci     SHA256:HRmMEMU9cyejr7STBxyzzOI4cfmC7Xkho7aTuOfNdNA   # deploy pipeline

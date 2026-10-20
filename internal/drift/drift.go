@@ -68,7 +68,15 @@ func Compare(old, cur store.HostSnapshot) HostDrift {
 		// Root routes and keys are only complete with privilege on both
 		// sides; comparing partial data would invent changes.
 		if of.Privileged() && nf.Privileged() {
-			set("root", routes(of), routes(nf))
+			o, n := of, nf
+			if (of.RootWritable == nil) != (nf.RootWritable == nil) {
+				// Only one scan checked the files root runs (an older nobet,
+				// or a listing that failed): leave the routes through them out.
+				oc, nc := *of, *nf
+				oc.RootWritable, nc.RootWritable = nil, nil
+				o, n = &oc, &nc
+			}
+			set("root", routes(o), routes(n))
 			if of.AuthKeys != nil && nf.AuthKeys != nil {
 				set("key", keys(of), keys(nf))
 			}

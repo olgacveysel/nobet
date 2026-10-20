@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/olgacveysel/nobet/internal/checks"
+	"github.com/olgacveysel/nobet/internal/keys"
 	"github.com/olgacveysel/nobet/internal/rootmap"
 	"github.com/olgacveysel/nobet/internal/scan"
 )
@@ -28,6 +29,7 @@ var tmpl = template.Must(template.New("report").Funcs(template.FuncMap{
 type HTMLMeta struct {
 	Generated time.Time
 	Version   string
+	Owners    *keys.Owners // names the keys in the root access map; may be nil
 }
 
 type htmlHost struct {
@@ -92,6 +94,9 @@ func HTML(w io.Writer, results []scan.HostResult, meta HTMLMeta) error {
 	})
 	if d.HasRoot {
 		d.Root = rootmap.Build(results)
+		if meta.Owners.Loaded() {
+			d.Root.SetOwners(meta.Owners.Path, meta.Owners.Owner)
+		}
 	}
 	return tmpl.Execute(w, d)
 }

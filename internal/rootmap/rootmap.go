@@ -8,6 +8,7 @@ package rootmap
 import (
 	"fmt"
 	"io"
+	"path"
 	"sort"
 	"strings"
 	"text/tabwriter"
@@ -32,6 +33,7 @@ type Grant struct {
 
 // Key is an SSH key that leads to root on at least one host.
 type Key struct {
+	Owner       string   `json:"owner,omitempty"` // from the keys file, if one is used
 	Fingerprint string   `json:"fingerprint"`
 	Type        string   `json:"type"`
 	Comments    []string `json:"comments,omitempty"`
@@ -66,6 +68,87 @@ type Map struct {
 	Keys         []Key     `json:"keys"`
 	KeylessUsers []Account `json:"accounts_without_keys"`
 	Gaps         []Gap     `json:"incomplete"`
+	OwnersFile   string    `json:"owners_file,omitempty"` // the keys file owners came from; "" if none
+}
+
+// SetOwners names each key's owner from a keys file (see package keys).
+func (m *Map) SetOwners(file string, owner func(fingerprint string) string) {
+	m.OwnersFile = file
+	for i := range m.Keys {
+		m.Keys[i].Owner = owner(m.Keys[i].Fingerprint)
+	}
+}
+
+// Unclaimed returns the keys that lead to root but have no owner in the
+// keys file; nil when no keys file is used.
+func (m Map) Unclaimed() []Key {
+	if m.OwnersFile == "" {
+		return nil
+	}
+	var out []Key
+	for _, k := range m.Keys {
+		if k.Owner == "" {
+			out = append(out, k)
+		}
+	}
+	return out
+}
+
+// Who returns the part of the map that matters when a person leaves: the
+// keys they own (or, without a keys file, keys whose comment names them,
+// like name@laptop), any other key's access to an account of that name,
+// and accounts of that name without key access.
+func (m Map) Who(name string) Map {
+	out := Map{Keys: []Key{}, KeylessUsers: []Account{}, Gaps: m.Gaps, OwnersFile: m.OwnersFile}
+	for _, k := range m.Keys {
+		if k.Owner == name || m.OwnersFile == "" && commentNames(k.Comments, name) {
+			out.Keys = append(out.Keys, k)
+			continue
+		}
+		var gs []Grant
+		for _, g := range k.Grants {
+			if g.User == name {
+				gs = append(gs, g)
+			}
+		}
+		if len(gs) > 0 {
+			k.Grants = gs
+			out.Keys = append(out.Keys, k)
+		}
+	}
+	for _, a := range m.KeylessUsers {
+		if a.User == name {
+			out.KeylessUsers = append(out.KeylessUsers, a)
+		}
+	}
+	return out
+}
+
+// commentNames reports whether a key comment is the name, or name@host.
+func commentNames(comments []string, name string) bool {
+	for _, c := range comments {
+		user, _, _ := strings.Cut(c, "@")
+		if strings.EqualFold(c, name) || strings.EqualFold(user, name) {
+			return true
+		}
+	}
+	return false
+}
+
+// Label describes a key for people: owner (if known), fingerprint, type
+// and comments.
+func (k Key) Label(ownersFile string) string {
+	label := k.Fingerprint + "  " + strings.TrimPrefix(k.Type, "ssh-")
+	if len(k.Comments) > 0 {
+		label += "  " + strings.Join(k.Comments, ", ")
+	}
+	switch {
+	case k.Owner != "":
+		label = k.Owner + "  " + label
+	case ownersFile != "":
+		label = "(no known owner)  " + label
+	}
+	return label
 }
 
 // Build computes the map from scan results.
@@ -254,7 +337,80 @@ func Routes(f *collect.Facts) (map[string][]Route, []string) {
 			}
 		}
 	}
+
+	if f.RootWritable == nil {
+		reason := "not part of this scan"
+		switch {
+		case f.Errors["root-paths"] != "":
+			reason = f.Errors["root-paths"]
+		case f.Errors["root-jobs"] != "":
+			reason = f.Errors["root-jobs"]
+		case !f.Privileged():
+			reason = "needs root or passwordless sudo"
+		}
+		gaps = append(gaps, "files root runs were not checked ("+reason+"); accounts that can change them are not listed")
+	} else {
+		fileRoutes(f, uid0, add)
+	}
 	return routes, gaps
+}
+
+// canLogIn reports whether a login shell is a shell, as opposed to
+// nologin, false, or the sync, shutdown and halt accounts' commands.
+func canLogIn(shell string) bool {
+	switch path.Base(shell) {
+	case "nologin", "false", "sync", "shutdown", "halt":
+		return false
+	}
+	return true
+}
+
+// maxFileRoutes caps the routes listed per account through files root
+// runs; FS-003 lists them all.
+const maxFileRoutes = 3
+
+// fileRoutes adds a route for every account that can change a file root
+// runs or trusts. A world-writable one is a route for every account that
+// can log in.
+func fileRoutes(f *collect.Facts, uid0 map[string]bool, add func(string, Route)) {
+	var logins []string
+	for _, p := range f.Passwd {
+		if !uid0[p.Name] && canLogIn(p.Shell) {
+			logins = append(logins, p.Name)
+		}
+	}
+	count := map[string]int{}
+	seen := map[[2]string]bool{}
+	addFile := func(user, via, path string) {
+		if uid0[user] || strings.HasPrefix(user, "uid ") || seen[[2]string{user, path}] {
+			return
+		}
+		seen[[2]string{user, path}] = true
+		if count[user]++; count[user] <= maxFileRoutes {
+			add(user, Route{Via: via})
+		}
+	}
+	for _, w := range f.RootWritable {
+		for _, wr := range w.Writers {
+			if wr.Everyone {
+				for _, u := range logins {
+					addFile(u, "changes world-writable "+w.Path+", "+w.Use(), w.Path)
+				}
+				continue
+			}
+			addFile(wr.Account, "changes "+w.Path+", "+w.Use(), w.Path)
+		}
+	}
+	users := make([]string, 0, len(count))
+	for u := range count {
+		users = append(users, u)
+	}
+	sort.Strings(users)
+	for _, u := range users {
+		if n := count[u] - maxFileRoutes; n > 0 {
+			add(u, Route{Via: fmt.Sprintf("changes %d more files root runs (see FS-003)", n)})
+		}
+	}
 }
 
 // keyLogin reports whether user can log in over SSH with a key, and from
@@ -375,12 +531,11 @@ func (m Map) WriteText(w io.Writer) {
 	if len(m.Keys) == 0 {
 		fmt.Fprintln(tw, "  No SSH key leads to root on the scanned hosts.")
 	}
+	if n := len(m.Unclaimed()); n > 0 {
+		fmt.Fprintf(tw, "  %d key(s) with root access have no owner in %s.\n", n, m.OwnersFile)
+	}
 	for _, k := range m.Keys {
-		label := k.Fingerprint + "  " + strings.TrimPrefix(k.Type, "ssh-")
-		if len(k.Comments) > 0 {
-			label += "  " + strings.Join(k.Comments, ", ")
-		}
-		fmt.Fprintf(tw, "\n%s\n", label)
+		fmt.Fprintf(tw, "\n%s\n", k.Label(m.OwnersFile))
 		fmt.Fprintf(tw, "  root on %d host(s):\n", k.Hosts())
 		for _, g := range k.Grants {
 			line := fmt.Sprintf("    %s\tas %s\tvia %s", g.Host, g.User, routeText(g.Routes))

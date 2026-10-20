@@ -116,3 +116,19 @@ func TestCompareGroupsAndApk(t *testing.T) {
 		t.Errorf("got %q, want %q", got, want)
 	}
 }
+
+// Routes through files root runs only count when both scans checked them.
+func TestCompareFileRoutesLikeWithLike(t *testing.T) {
+	writable := []collect.WritablePath{{Kind: "cron", Source: "/etc/cron.d/app", Path: "/opt/app/run.sh",
+		Writers: []collect.Writer{{Account: "deploy", Path: "/opt/app", How: "owner"}}}}
+	before, after := facts(), facts()
+	after.RootWritable = writable
+	if d := Compare(store.HostSnapshot{Host: "h", Facts: before}, store.HostSnapshot{Host: "h", Facts: after}); len(d.Changes) != 0 {
+		t.Errorf("an older scan without the check: got %+v, want no changes", d.Changes)
+	}
+	before.RootWritable = []collect.WritablePath{}
+	d := Compare(store.HostSnapshot{Host: "h", Facts: before}, store.HostSnapshot{Host: "h", Facts: after})
+	if len(d.Changes) != 1 || !strings.Contains(d.Changes[0].What, "deploy via changes /opt/app/run.sh, used by root's cron (/etc/cron.d/app)") {
+		t.Errorf("got %+v", d.Changes)
+	}
+}
