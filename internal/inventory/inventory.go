@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"os/user"
+	"regexp"
 	"strconv"
 	"strings"
 )
@@ -30,33 +31,73 @@ func (h Host) Target() string {
 	return net.JoinHostPort(h.Addr, strconv.Itoa(port))
 }
 
-// Load reads an inventory file with one [user@]host[:port] per line.
-// Blank lines and anything after # are ignored.
-func Load(path, defaultUser string) ([]Host, error) {
-	f, err := os.Open(path)
+// Load reads an inventory file: one [user@]host[:port] per line (blank
+// lines and anything after # are ignored), an Ansible INI inventory, or the
+// JSON of `ansible-inventory --list`. groups picks Ansible groups (all
+// hosts when empty). skipped names Ansible hosts that are not reached over
+// SSH (ansible_connection=local).
+func Load(path, defaultUser string, groups []string) (hosts []Host, skipped []string, err error) {
+	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	defer f.Close()
+	if trimmed := strings.TrimSpace(string(data)); strings.HasPrefix(trimmed, "{") {
+		a, err := parseAnsibleJSON(data)
+		if err != nil {
+			return nil, nil, fmt.Errorf("%s: %w", path, err)
+		}
+		return wrap(path)(a.hosts(groups, defaultUser))
+	}
 
-	var hosts []Host
-	sc := bufio.NewScanner(f)
+	var lines []string
+	var nums []int
+	sc := bufio.NewScanner(strings.NewReader(string(data)))
 	for lineNo := 1; sc.Scan(); lineNo++ {
-		line := sc.Text()
+		line := strings.TrimSpace(sc.Text())
+		if strings.HasPrefix(line, ";") {
+			line = "" // Ansible INI comment
+		}
 		if i := strings.Index(line, "#"); i >= 0 {
-			line = line[:i]
+			line = strings.TrimSpace(line[:i])
 		}
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
+		if line != "" {
+			lines, nums = append(lines, line), append(nums, lineNo)
 		}
+	}
+	if len(lines) > 0 && (lines[0] == "---" || yamlKey.MatchString(lines[0])) {
+		return nil, nil, fmt.Errorf("%s: YAML inventories are not read directly; use the JSON that `ansible-inventory -i %s --list` prints", path, path)
+	}
+	if isAnsibleINI(lines) {
+		a, err := parseAnsibleINI(lines, nums)
+		if err != nil {
+			return nil, nil, fmt.Errorf("%s: %w", path, err)
+		}
+		return wrap(path)(a.hosts(groups, defaultUser))
+	}
+	if len(groups) > 0 {
+		return nil, nil, fmt.Errorf("%s: -group needs an Ansible inventory; this file is a plain host list", path)
+	}
+	for i, line := range lines {
 		h, err := Parse(line, defaultUser)
 		if err != nil {
-			return nil, fmt.Errorf("%s:%d: %w", path, lineNo, err)
+			return nil, nil, fmt.Errorf("%s:%d: %w", path, nums[i], err)
 		}
 		hosts = append(hosts, h)
 	}
-	return hosts, sc.Err()
+	return hosts, nil, nil
+}
+
+// yamlKey matches a YAML mapping key on its own line, like "all:".
+var yamlKey = regexp.MustCompile(`^[A-Za-z0-9_-]+:$`)
+
+// wrap prefixes an error with the file name.
+func wrap(path string) func([]Host, []string, error) ([]Host, []string, error) {
+	return func(h []Host, s []string, err error) ([]Host, []string, error) {
+		if err != nil {
+			err = fmt.Errorf("%s: %w", path, err)
+		}
+		return h, s, err
+	}
 }
 
 // Parse parses a single [user@]host[:port] target. IPv6 addresses with a

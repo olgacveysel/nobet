@@ -5,6 +5,24 @@ package collect
 // Some distros keep sshd, ss and sudo in sbin, which is not on a
 // non-login PATH, hence the PATH line.
 
+// Defines sshd_opts, which prints the -o options the running sshd was
+// started with, one per line, for every sshd -T to use. RHEL 8 and its
+// rebuilds pass the system crypto policy that way (ExecStart=/usr/sbin/sshd
+// -D $OPTIONS $CRYPTO_POLICY), so sshd -T without them shows OpenSSH's
+// built-in algorithms instead of the ones in effect. The command line is
+// NUL-separated, or one string in the listener's process title on newer
+// OpenSSH ("sshd: /usr/sbin/sshd -oX=y [listener] ...").
+const sshdOptsFunc = `sshd_opts_from() {
+  tr '\0 ' '\n\n' < "$1" | awk '$0 == "-o" { if ((getline v) > 0) print "-o" v; next } /^-o[A-Za-z]+=/ { print }'
+}
+sshd_opts() {
+  pid=$(cat /run/sshd.pid /var/run/sshd.pid 2>/dev/null | head -n 1)
+  case "$pid" in ''|*[!0-9]*) return 0 ;; esac
+  [ -r "/proc/$pid/cmdline" ] && sshd_opts_from "/proc/$pid/cmdline"
+  return 0
+}
+`
+
 // Prints sshd's effective config for an arbitrary account connecting from
 // TEST-NET-1, then "@@match" and the Match lines of the config files.
 // Plain sshd -T is only the fallback for old sshd versions: it fails
@@ -12,13 +30,16 @@ package collect
 // when sshd is not installed at all.
 const sshdScript = `PATH=$PATH:/usr/sbin:/sbin
 command -v sshd >/dev/null 2>&1 || exit 0
-probe() { sshd -T -C "user=nobet-probe,host=nobet.invalid,addr=192.0.2.1,laddr=192.0.2.2,lport=$1" 2>/dev/null; }
+` + sshdOptsFunc + `opts=$(sshd_opts)
+set -f # $opts is split into options, never globbed
+probe() { sshd -T -C "user=nobet-probe,host=nobet.invalid,addr=192.0.2.1,laddr=192.0.2.2,lport=$1" $opts 2>/dev/null; }
 if out=$(probe 22); then
   port=$(printf '%s\n' "$out" | awk '$1=="port" {print $2; exit}')
   if [ -n "$port" ] && [ "$port" != 22 ]; then out=$(probe "$port") || exit 1; fi
 else
-  out=$(sshd -T) || exit 1
+  out=$(sshd -T $opts) || exit 1
 fi
+set +f
 printf '%s\n' "$out"
 echo "@@match"
 for f in /etc/ssh/sshd_config /etc/ssh/sshd_config.d/*.conf /usr/etc/ssh/sshd_config /usr/etc/ssh/sshd_config.d/*.conf; do
@@ -144,9 +165,9 @@ echo end
 // %% expanded; relative paths are under the home directory). Needs root to
 // read other users' home directories.
 const authKeysScript = `PATH=$PATH:/usr/sbin:/sbin
-akf=$(sshd -T 2>/dev/null | awk '$1=="authorizedkeysfile" {$1=""; print}')
+` + sshdOptsFunc + `set -f # split $akf and the sshd options on spaces without globbing
+akf=$(sshd -T $(sshd_opts) 2>/dev/null | awk '$1=="authorizedkeysfile" {$1=""; print}')
 [ -n "$akf" ] || akf=".ssh/authorized_keys .ssh/authorized_keys2"
-set -f # split $akf on spaces without globbing
 while IFS=: read -r name _ uid _ _ home _; do
   for p in $akf; do
     [ "$p" = none ] && continue

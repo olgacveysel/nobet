@@ -57,6 +57,7 @@ archives:
       - hosts.example
       - keys.example
       - contrib/systemd/nobet-scan.*
+      - contrib/hooks/*
 
   - id: nobet-web
     ids: [nobet-web]
@@ -117,6 +118,10 @@ nfpms:
         dst: /usr/share/doc/nobet/examples/nobet-scan.service
       - src: contrib/systemd/nobet-scan.timer
         dst: /usr/share/doc/nobet/examples/nobet-scan.timer
+      - src: contrib/hooks/slack
+        dst: /usr/share/doc/nobet/examples/on-change-slack
+        file_info:
+          mode: 0755
 
   - id: nobet-web
     ids: [nobet-web]

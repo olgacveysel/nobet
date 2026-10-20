@@ -36,6 +36,7 @@ type Options struct {
 	StaleAfter time.Duration // hosts without a successful scan for this long are flagged
 	UserHeader string        // header an authenticating proxy sets to the user name; logged only
 	KeysFile   string        // names the owners of SSH keys on the root page; read on each view, "" for none
+	Metrics    bool          // serve /metrics in the Prometheus text format
 	Log        *log.Logger   // request log; nil for none
 	Now        func() time.Time
 }
@@ -85,6 +86,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /changes", s.handleChanges)
 	mux.HandleFunc("GET /root", s.handleRoot)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) { fmt.Fprintln(w, "ok") })
+	if s.opts.Metrics {
+		mux.HandleFunc("GET /metrics", s.handleMetrics)
+	}
 	assets := http.StripPrefix("/static/", http.FileServerFS(static))
 	mux.HandleFunc("GET /static/{file}", func(w http.ResponseWriter, r *http.Request) {
 		// Styles and logos hold nothing sensitive, unlike the pages.
@@ -300,16 +304,21 @@ func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	s.render(w, http.StatusOK, "root", rootPage{page: s.page(ix, "Root access", "root"), Map: s.rootMap(ix), Empty: len(ix.hosts) == 0})
+}
+
+// rootMap builds the access map with key owners from the keys file, which
+// is read every time, so edits show up without a restart.
+func (s *Server) rootMap(ix *index) rootmap.Map {
 	m := ix.rootMap()
 	if s.opts.KeysFile != "" {
-		// Read on every view, so edits show up without a restart.
 		if owners, err := keys.Load(s.opts.KeysFile, true); err != nil {
 			m.Gaps = append(m.Gaps, rootmap.Gap{Host: "keys file", Reason: err.Error()})
 		} else {
 			m.SetOwners(owners.Path, owners.Owner)
 		}
 	}
-	s.render(w, http.StatusOK, "root", rootPage{page: s.page(ix, "Root access", "root"), Map: m, Empty: len(ix.hosts) == 0})
+	return m
 }
 
 // index loads the history, answering with an error page when it cannot.

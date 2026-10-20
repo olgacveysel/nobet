@@ -56,6 +56,9 @@ nobet scan web01 admin@db01:2222
 # Scan an inventory file (see hosts.example), plus this machine
 nobet scan -local -i hosts.txt
 
+# Scan the web and db groups of an Ansible inventory
+nobet scan -i inventory.ini -group web,db
+
 # JSON for scripts and CI; exit code 1 if anything is medium or worse
 nobet scan -json -fail-on medium -i hosts.txt > report.json
 ```
@@ -65,6 +68,8 @@ In an interactive terminal, results open in the TUI: hosts appear as they finish
 Run `nobet help scan` for all flags. Flags must come before host arguments.
 
 Hosts are resolved through `~/.ssh/config` and `/etc/ssh/ssh_config` like `ssh` does: aliases (`HostName`), `User`, `Port`, `IdentityFile` and `ProxyJump` (including chains such as `ProxyJump gw1,bastion`). Values you give explicitly (`user@host:port`, `-u`) win over the config. Use `-F <file>` (`-ssh-config`) to read one config file instead, like `ssh -F`, or `-no-ssh-config` to ignore it. `ProxyCommand` is not supported; hosts that need it are reported with a clear error.
+
+`-i` also reads Ansible inventories: INI files directly (groups, `:children`, `:vars`, host ranges like `web[01:10]`, and `ansible_host`, `ansible_port` and `ansible_user`, with Ansible's precedence), and YAML or dynamic inventories through the JSON that `ansible-inventory -i inventory.yml --list > inventory.json` prints. Hosts keep their inventory names in reports, `-group` picks groups (children included), and hosts with `ansible_connection=local` are skipped (use `-local`).
 
 Keys come from ssh-agent (`SSH_AUTH_SOCK`; on Windows the OpenSSH Authentication Agent service is used automatically), the config's `IdentityFile`s, and unencrypted keys in `~/.ssh` or given with `-identity`.
 
@@ -137,6 +142,14 @@ NET-001  web*  tcp/443      # public web servers
 
 Allowlisted findings disappear from reports and no longer affect the exit code, but they are counted ("3 allowlisted") and listed with their reason in `-json` output, so nothing is hidden silently. See `allowlist.example`.
 
+### Alerts on changes
+
+```bash
+nobet scan -i hosts.txt -on-change /etc/nobet/on-change
+```
+
+When a scan finds changes since the previous one, nöbet runs the `-on-change` command (through `sh -c`) with the changes as JSON on stdin, in the format of `nobet diff -json` but only for the hosts that changed. It also sets `NOBET_CHANGES` and `NOBET_CHANGED_HOSTS` to the counts, and `NOBET_SUMMARY` to a few lines for a chat message or mail (also as a JSON string in `NOBET_SUMMARY_JSON`). The command's output goes to stderr; if it fails or takes longer than two minutes, the scan reports that and carries on. [`contrib/hooks/slack`](contrib/hooks/slack) posts the summary to a Slack or Mattermost webhook with curl or busybox wget. nöbet itself never makes HTTP requests.
+
 ### What changed: `nobet diff`
 
 Every scan is saved to `~/.local/share/nobet/scans` (directory mode 0700, files 0600; the newest 100 are kept; skip with `-no-save`). Use `-history-dir DIR` on `scan` and `diff`, or set `NOBET_DATA_DIR` (history in `$NOBET_DATA_DIR/scans`), to keep a shared history instead; in a directory you made group-readable, scans are saved 0640. After a scan, nöbet tells you how many things changed since that host's previous scan, and `nobet diff` shows them:
@@ -195,6 +208,22 @@ sudo systemctl start nobet-scan.service   # the first scan now rather than tonig
 
 Both units are hardened (`systemd-analyze security` rates the dashboard 1.3 and the scanner 3.4, where 10 is unconfined); the dashboard cannot read `/var/lib/nobet/.ssh` and only accepts local connections. Hosts without a successful scan for 48 hours are flagged (`-stale`).
 
+#### Prometheus metrics
+
+`nobet-web -metrics` also serves `/metrics` for a Prometheus on the same machine (or one your proxy lets through): per host, the findings in its newest successful scan by severity (`nobet_host_findings`), allowlisted findings, whether the newest attempt succeeded (`nobet_host_up`), whether it is stale (`nobet_host_stale`), the scan times and whether the scan was privileged; for the fleet, the number of SSH keys that lead to root (`nobet_root_keys`, and `nobet_root_keys_unclaimed` with `-keys`). For example:
+
+```yaml
+groups:
+  - name: nobet
+    rules:
+      - alert: NobetCriticalFinding
+        expr: nobet_host_findings{severity="critical"} > 0
+      - alert: NobetHostNotScanned
+        expr: nobet_host_stale == 1
+      - alert: NobetUnclaimedRootKey
+        expr: nobet_root_keys_unclaimed > 0
+```
+
 ### Docker
 
 `compose.yaml` runs the same setup in two containers: `scanner` runs `nobet scan` every 24 hours (`NOBET_INTERVAL`) and is the only one that gets the SSH key; `web` is the dashboard on a distroless image without a shell, with the scan history mounted read-only and the port published on `127.0.0.1` only. Both run as uid 65532 with a read-only root filesystem and no capabilities.
@@ -208,7 +237,7 @@ sudo chown 65532 secrets/id_ed25519           # readable by the containers' user
 docker compose up -d
 ```
 
-Optional files in `config/`: `allowlist`, and `ssh_config` for aliases and `ProxyJump`. The scanner logs each scan (`docker compose logs scanner`); `NOBET_INTERVAL=once` scans once and exits. `config/` and `secrets/` are git-ignored.
+Optional files in `config/`: `allowlist`, `ssh_config` for aliases and `ProxyJump`, and an executable `on-change` hook (see [Alerts on changes](#alerts-on-changes); `contrib/hooks/slack` works in the scanner image). The scanner logs each scan (`docker compose logs scanner`); `NOBET_INTERVAL=once` scans once and exits. `config/` and `secrets/` are git-ignored.
 
 Compose runs the release images `ghcr.io/olgacveysel/nobet-scanner` and `ghcr.io/olgacveysel/nobet-web` (amd64 and arm64). Pin a version with `NOBET_VERSION=0.1.0` in a `.env` file next to `compose.yaml` (the default is `latest`, which only moves on releases, not pre-releases); `docker compose up -d --build` builds both from the checkout instead. The images are signed the same way as the downloads, and carry an SBOM and build provenance:
 
@@ -231,12 +260,13 @@ Measured with 50 hosts (the size nöbet is built for): a full scan takes about 1
 | SSH-002 | Medium / Low    | Password or PAM keyboard-interactive authentication enabled |
 | SSH-003 | Critical        | Empty passwords accepted |
 | SSH-004 | Low             | X11 forwarding enabled |
+| SSH-005 | Medium / Low    | Weak or deprecated algorithms offered: Medium for RC4, 3DES, Blowfish, MD5 MACs, 1024-bit DH and DSA keys; Low for CBC ciphers and SHA-1 key exchange or signatures (`ssh-rsa`) |
 | ACC-001 | Critical        | Accounts other than root with UID 0 |
 | ACC-002 | High / Medium   | Passwordless sudo rules, or sudo authentication disabled |
 | ACC-003 | High            | Members of root-equivalent groups (docker, lxd, incus) |
 | ACC-004 | High            | Limited sudo rules that still give a root shell or root file writes (editors, pagers, interpreters, `find`, `tee`… see GTFOBins) |
 | ACC-005 | Critical / High | Accounts with an empty password that can log in; Critical when the account can become root |
-| NET-001 | High / Info     | Databases and admin APIs listening on all interfaces |
+| NET-001 | Critical / High / Info | The Docker API without TLS (port 2375) on any non-loopback address (Critical: root for anyone who can connect); databases and admin APIs listening on all interfaces |
 | NET-002 | Medium / Low    | No host firewall filtering incoming traffic (ufw, firewalld, nftables, iptables); Medium when services are exposed |
 | FS-001  | Critical / High / Medium | SUID on programs that spawn a root shell (bash, find, vim, python…), SUID files in /tmp or home directories, SUID files not owned by any package |
 | FS-002  | High            | World-writable files, or world-writable directories without the sticky bit, in /etc, /usr, /bin, /sbin, /opt |
@@ -263,6 +293,7 @@ UPD-004 knows Ubuntu, Debian (including its free LTS period) and Raspbian, RHEL,
 
 ## Known limitations
 
+- sshd's effective config comes from `sshd -T`, with the `-o` options the running daemon was started with (RHEL 8 and its rebuilds pass the system crypto policy that way). Other command-line options of the running daemon, such as `-f` for another config file, are not followed.
 - sshd `Match` blocks are evaluated with `sshd -T -C` for the accounts that can become root (and for an arbitrary account), connecting from anywhere and from one sample address per `Match Address` entry. `Match Host`, `LocalAddress` and `LocalPort` criteria and IPv6 address wildcards are not sampled, and keys are always read from the global `AuthorizedKeysFile`.
 - The account you scan with will show up in ACC-002 if it has passwordless sudo; add it to the allowlist.
 - `user@host` patterns in `AllowUsers` are treated as allowing the user from anywhere.
@@ -295,6 +326,10 @@ UPD-004 knows Ubuntu, Debian (including its free LTS period) and Raspbian, RHEL,
 - [x] Signed releases with SBOMs; signed multi-arch container images on ghcr.io
 - [x] OS end of support (UPD-004), with Ubuntu Pro ESM detection
 - [x] Files root runs that other accounts can change (FS-003), as routes in the root access map
+- [x] Key owners and offboarding (`-keys`, `nobet rootmap -who`)
+- [x] Weak SSH algorithms (SSH-005), with RHEL 8's crypto policy taken into account
+- [x] Alerts on changes (`-on-change` hooks) and Prometheus metrics (`nobet-web -metrics`)
+- [x] Ansible inventories (INI, and `ansible-inventory --list` JSON) with `-group`
 - [x] `nobet-web`: read-only team dashboard over a shared scan history
 - [ ] `nobet-web`: built-in OIDC login with a read-only role, and an audit log of who viewed what
 

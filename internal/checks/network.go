@@ -28,6 +28,14 @@ func wildcardAddr(addr string) bool {
 	return addr == "0.0.0.0" || addr == "::" || addr == "*"
 }
 
+func loopbackAddr(addr string) bool {
+	return strings.HasPrefix(addr, "127.") || addr == "::1" || addr == "localhost"
+}
+
+// dockerAPIPort is dockerd's plain-HTTP API: whoever reaches it can start a
+// privileged container and so is root on the host.
+const dockerAPIPort = 2375
+
 var exposedListeners = Check{
 	ID:    "NET-001",
 	Title: "Services listening on all interfaces",
@@ -39,10 +47,23 @@ var exposedListeners = Check{
 		var out []Finding
 		var others []string
 		for _, l := range f.Listeners {
+			key := l.Proto + "/" + strconv.Itoa(l.Port)
+			if l.Proto == "tcp" && l.Port == dockerAPIPort && !loopbackAddr(l.Addr) {
+				if !seen[key] {
+					seen[key] = true
+					out = append(out, Finding{
+						CheckID:  "NET-001",
+						Severity: Critical,
+						Title:    "Docker API without TLS is reachable from the network",
+						Detail:   key + " on " + l.Addr + "; anyone who can connect can run a privileged container, which is root on this host",
+						Fix:      "Remove the tcp:// listener from dockerd (-H or \"hosts\" in daemon.json), or switch to TLS with client certificates on port 2376",
+					})
+				}
+				continue
+			}
 			if !wildcardAddr(l.Addr) {
 				continue
 			}
-			key := l.Proto + "/" + strconv.Itoa(l.Port)
 			if seen[key] {
 				continue // same port on IPv4 and IPv6
 			}

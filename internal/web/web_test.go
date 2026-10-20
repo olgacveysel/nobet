@@ -239,6 +239,49 @@ func TestAgo(t *testing.T) {
 	}
 }
 
+func TestMetrics(t *testing.T) {
+	dir := t.TempDir()
+	history(t, dir)
+	if rec := get(t, newServer(t, dir, nil), "GET", "/metrics"); rec.Code != http.StatusNotFound {
+		t.Errorf("metrics are opt-in: got %d", rec.Code)
+	}
+	s, err := New(Options{HistoryDir: dir, Version: "test", Now: func() time.Time { return now }, Metrics: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := get(t, s.Handler(), "GET", "/metrics")
+	if rec.Code != 200 || !strings.HasPrefix(rec.Header().Get("Content-Type"), "text/plain; version=0.0.4") {
+		t.Fatalf("got %d %q", rec.Code, rec.Header().Get("Content-Type"))
+	}
+	body := rec.Body.String()
+	for _, want := range []string{
+		"# TYPE nobet_host_findings gauge\n",
+		`nobet_build_info{version="test"} 1`,
+		"nobet_hosts 3\n",
+		`nobet_host_up{host="web01"} 1`,
+		`nobet_host_up{host="db01"} 0`,
+		`nobet_host_stale{host="new01"} 1`,
+		`nobet_host_findings{host="web01",severity="high"} 1`,
+		`nobet_host_findings{host="db01",severity="high"} 1`, // newest successful scan, 50 h old
+		`nobet_host_stale{host="db01"} 1`,
+		`nobet_host_allowlisted_findings{host="web01"} 1`,
+		"nobet_root_keys 2\n",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("metrics lack %q:\n%s", want, body)
+		}
+	}
+	if strings.Contains(body, `nobet_host_last_success_timestamp_seconds{host="new01"}`) {
+		t.Error("a host never scanned successfully has no last-success time")
+	}
+	if strings.Contains(body, "unclaimed") {
+		t.Error("unclaimed keys need a keys file")
+	}
+	if got := labelValue("a\"b\\c\nd"); got != `a\"b\\c\nd` {
+		t.Errorf("labelValue = %s", got)
+	}
+}
+
 // The keys file is read on every view of the root page.
 func TestRootPageOwners(t *testing.T) {
 	dir := t.TempDir()

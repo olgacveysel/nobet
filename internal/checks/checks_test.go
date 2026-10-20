@@ -58,6 +58,53 @@ func TestSSHDSkipReasons(t *testing.T) {
 	}
 }
 
+func TestDockerAPI(t *testing.T) {
+	cases := map[string]int{"0.0.0.0": 1, "10.0.0.5": 1, "::": 1, "127.0.0.1": 0, "::1": 0}
+	for addr, want := range cases {
+		got, _ := exposedListeners.Run(&collect.Facts{Listeners: []collect.Listener{{Proto: "tcp", Addr: addr, Port: 2375}, {Proto: "tcp", Addr: "127.0.0.1", Port: 2376}}})
+		if len(got) != want || want == 1 && got[0].Severity != Critical {
+			t.Errorf("dockerd on %s: got %+v, want %d Critical finding", addr, got, want)
+		}
+	}
+}
+
+func TestSSHWeakAlgorithms(t *testing.T) {
+	// OpenSSH 9 defaults: nothing to report.
+	modern := map[string][]string{
+		"ciphers":                  {"chacha20-poly1305@openssh.com,aes128-ctr,aes192-ctr,aes256-ctr,aes128-gcm@openssh.com,aes256-gcm@openssh.com"},
+		"macs":                     {"umac-64-etm@openssh.com,umac-128-etm@openssh.com,hmac-sha2-256-etm@openssh.com,hmac-sha2-512-etm@openssh.com,hmac-sha1-etm@openssh.com,umac-64@openssh.com,umac-128@openssh.com,hmac-sha2-256,hmac-sha2-512,hmac-sha1"},
+		"kexalgorithms":            {"sntrup761x25519-sha512@openssh.com,curve25519-sha256,curve25519-sha256@libssh.org,ecdh-sha2-nistp256,ecdh-sha2-nistp384,ecdh-sha2-nistp521,diffie-hellman-group-exchange-sha256,diffie-hellman-group16-sha512,diffie-hellman-group18-sha512,diffie-hellman-group14-sha256"},
+		"hostkeyalgorithms":        {"ssh-ed25519-cert-v01@openssh.com,ecdsa-sha2-nistp256,ssh-ed25519,rsa-sha2-512,rsa-sha2-256"},
+		"pubkeyacceptedalgorithms": {"ssh-ed25519,ecdsa-sha2-nistp256,rsa-sha2-512,rsa-sha2-256"},
+	}
+	if got, skip := sshWeakAlgorithms.Run(&collect.Facts{SSHD: modern}); len(got) != 0 || skip != "" {
+		t.Errorf("modern defaults: %+v %q", got, skip)
+	}
+
+	// CentOS 7 (OpenSSH 7.4) with old settings; it says pubkeyacceptedkeytypes.
+	old := map[string][]string{
+		"ciphers":                {"aes128-ctr,aes256-ctr,aes128-cbc,3des-cbc"},
+		"macs":                   {"hmac-sha2-256,hmac-sha1,hmac-md5"},
+		"kexalgorithms":          {"curve25519-sha256,diffie-hellman-group14-sha1,diffie-hellman-group1-sha1"},
+		"hostkeyalgorithms":      {"ssh-ed25519,rsa-sha2-512,ssh-rsa"},
+		"pubkeyacceptedkeytypes": {"ssh-ed25519,ssh-rsa"},
+	}
+	got, _ := sshWeakAlgorithms.Run(&collect.Facts{SSHD: old, OSRelease: map[string]string{"ID": "centos"}})
+	want := "ciphers: aes128-cbc, 3des-cbc; MACs: hmac-md5; key exchange: diffie-hellman-group14-sha1, diffie-hellman-group1-sha1; host key signatures: ssh-rsa; user key signatures: ssh-rsa"
+	if len(got) != 1 || got[0].Severity != Medium || got[0].Detail != want || !strings.Contains(got[0].Fix, "update-crypto-policies") {
+		t.Errorf("got %+v\nwant detail %q", got, want)
+	}
+
+	// RHEL 8 DEFAULT crypto policy: SHA-1 only, so Low.
+	rhel8 := map[string][]string{"kexalgorithms": {"curve25519-sha256,diffie-hellman-group14-sha1"}, "hostkeyalgorithms": {"rsa-sha2-256,ssh-rsa"}}
+	if got, _ := sshWeakAlgorithms.Run(&collect.Facts{SSHD: rhel8}); len(got) != 1 || got[0].Severity != Low || got[0].Title != "SSH server offers deprecated algorithms" {
+		t.Errorf("rhel8: %+v", got)
+	}
+	if _, skip := sshWeakAlgorithms.Run(&collect.Facts{SSHD: map[string][]string{}}); skip != "sshd is not installed" {
+		t.Errorf("no sshd: skip %q", skip)
+	}
+}
+
 func TestExposedListeners(t *testing.T) {
 	f := &collect.Facts{Listeners: []collect.Listener{
 		{Proto: "tcp", Addr: "0.0.0.0", Port: 22},

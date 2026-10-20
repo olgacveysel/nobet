@@ -33,7 +33,8 @@ services:
       NOBET_INTERVAL: 24h
     volumes:
       - nobet-data:/var/lib/nobet
-      # hosts, known_hosts, and optionally allowlist and ssh_config
+      # hosts, known_hosts, and optionally allowlist, ssh_config and an
+      # executable on-change hook (contrib/hooks/slack works here)
       - ./config:/etc/nobet:ro
     secrets:
       - ssh_key

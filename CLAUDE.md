@@ -21,7 +21,7 @@ internal/runner/    Runner interface and Result only (no dependencies)
 internal/transport/ Local (/bin/sh) and SSH runners (agent incl. Windows pipe, keys, strict known_hosts, ProxyJump chains)
 internal/fleet/     Local/Remote scans: the only package that connects to hosts; CLI only
 internal/sshconf/   ~/.ssh/config (or -F file) resolution via kevinburke/ssh_config
-internal/inventory/ [user@]host[:port] parsing; Port 0 / User "" mean "not given"
+internal/inventory/ host lists ([user@]host[:port]), Ansible INI and `ansible-inventory --list` JSON (ansible.go); Port 0 / User "" mean "not given"
 internal/collect/   Facts + collector shell scripts (scripts.go) + parsers; rootjobs.go (what root runs, who can change it), cmdline.go (command line -> files it runs)
 internal/checks/    Check{ID, Title, Run(facts) (findings, skip)}; registry in check.go All(); eol_data.go is generated (eolgen, from endoflife.date)
 internal/scan/      HostResult (Facts kept, json:"-") and Evaluate(facts -> findings)
@@ -34,7 +34,8 @@ internal/report/    text, JSON, HTML (embedded template + logo in assets/)
 internal/tui/       Bubble Tea UI; `r` toggles root access view
 internal/web/       nobet-web: history index, pages (embedded templates/ and static/)
 contrib/systemd/    nobet-scan.service/.timer and nobet-web.service (hardened)
-contrib/docker/     nobet-scan-loop: the scanner image's entrypoint
+contrib/docker/     nobet-scan-loop: the scanner image's entrypoint (adds -on-change for an executable config/on-change)
+contrib/hooks/      -on-change examples (slack: curl or busybox wget, no jq, so it runs in the scanner image)
 Dockerfile          one build, two targets: scanner (alpine) and web (distroless), uid 65532
 compose.yaml        scanner (holds the key, writes the volume) + web (volume read-only, 127.0.0.1 only)
 internal/brand/     half-block terminal logo (owl on the ö)
@@ -47,6 +48,7 @@ docs/logo/          SVG logos, favicon
 - **Scripts are shipped base64-encoded** (`script()` in collect.go) so quoting can't break them; `asRoot` runs them via `sudo -n sh` when passwordless sudo exists.
 - **nil vs empty matters.** A nil Facts field means "could not collect" and the check must return a skip reason; an empty slice means "collected, nothing there". Never let missing data look like a pass.
 - **Scripts must not hide unreadable data.** A script that ends in `true` succeeds even when nothing was readable; gate it on privilege or print a marker (see `nocache=` for dnf5). `Facts.SSHD` is nil when unreadable and an empty map when sshd is not installed (`NoSSHD`).
+- **sshd -T sees what is in effect.** Every `sshd -T` call passes the running daemon's `-o` options (`sshd_opts` in scripts.go): RHEL 8 hands its crypto policy to sshd on the command line, and without them `sshd -T` shows built-in defaults. Keep base and Match probes consistent, or every Match context differs in algorithms.
 - **sshd views.** `Facts.SSHD` is the config for an arbitrary account from TEST-NET-1; `SSHDMatch` holds per-account/per-address differences. Read sshd settings through `SSHDViews`/`LoginAllowed`, not `f.SSHD` directly, so Match blocks count.
 - **Never collect secrets.** The shadow collector prints only set/empty/locked; a test asserts no `$` reaches the output. Anything put into a generated script must be validated first (see `safeUser`, `safePath`).
 - **Privilege gating.** Data that is only complete as root (other users' keys, sudo rights, firewall, SUID/world-writable) is skipped entirely without privilege rather than collected partially.
@@ -54,12 +56,14 @@ docs/logo/          SVG logos, favicon
 - **Keep the history small.** Snapshots store Facts, so bulky raw listings stay out of JSON (`json:"-"`) and only their result is kept: `RootJobs`/`Paths`/`Links` (hundreds of entries per host) are dropped, `RootWritable` (usually empty) is stored.
 - **Who can change a file** (`Facts.Writers`): its owner, its group's members and everyone if writable, and the same for every directory above it; a sticky directory protects existing entries; a symlink's own mode means nothing, and a path through a symlinked directory (`/sbin -> usr/sbin`) is resolved. Check new path logic against merged-/usr distros and Alpine (`/var/spool/cron/crontabs` is a symlink there).
 - **Every parser has a test** with realistic sample output. Add one for every new collector. Where the logic is in awk, run the real script in the test (see `TestShadowScript`, `TestZypperScript`).
+- **Ansible inventories follow Ansible.** Variable precedence (all < parent groups < child groups < host) was checked against ansible-core's own `ansible-inventory --list`; recheck that way after changing ansible.go. YAML stays out (no YAML dependency): users convert with `ansible-inventory --list`.
 - **Verify against real systems.** Distro behavior is easy to guess wrong (dnf5/apk/zypper exit 0 with no cache; CentOS 7's root password field is `locked`). Throwaway containers (`docker run --rm -v nobet:/nobet:ro <image>`) running the static binary are the quick check.
 - **Severities:** Critical = direct path to root for anyone; High = serious exposure; Medium = should fix; Low = hardening; Info = context.
 - **Output modes:** TUI only on an interactive terminal; `-plain`/`-json`/pipes print plain output. JSON on stdout must stay valid (notes go to stderr).
 - **Exit codes:** 0 ok, 1 findings ≥ `-fail-on` (or changes for `diff`), 2 usage, 3 unreachable hosts.
 - **Release with a current Go.** `go.mod` only sets the minimum (1.26); CI and the release workflow use the latest stable Go, and CI runs govulncheck. Run `govulncheck ./...` before tagging; x/crypto/ssh is on the attack surface.
 - **Stream the history.** Read scans with `store.Walk` or `store.Recent`, one file at a time; never load the whole history (100 scans of 50 hosts is ~75 MB on disk and ~250 MB in memory). Measured at that size: diff 0.4 s / 31 MB, dashboard 24 MB.
+- **The CLI never makes HTTP requests.** Notifications go through `-on-change` hooks (external commands); keep that, rather than linking net/http into the CLI.
 - **Separate binaries stay separate.** `cmd/nobet/deps_test.go` fails if the CLI links `net/http` or `internal/web`; `cmd/nobet-web/deps_test.go` fails if the dashboard links `transport`, `fleet`, ssh-agent, known_hosts or `os/exec`. Keep result types in `scan`/`store` free of transport imports.
 - **Brand:** navy #0B1426, tile #16223B, cream #EDE9DF, amber #F2A93B (dark-on-light amber #D9890F). Lowercase "nöbet" in UI; binary/module names stay ASCII `nobet`.
 
@@ -71,6 +75,7 @@ Decided by the maintainer on 2026-10-14:
 - **Read-only over scan history.** It never scans and never holds SSH credentials. Scans come from `nobet scan` under a service account (systemd timer) writing to a shared history (`/var/lib/nobet/scans`). If on-demand scans are ever needed, the web process only queues a request and a separate worker running the CLI under the service account does the scan; the web process still never touches a key.
 - **For teams, with access control from day one.** v1: localhost only by default, behind the team's authenticating reverse proxy; no built-in login code. v2: built-in OIDC login with a read-only role and an audit log of who viewed what.
 - No JavaScript, strict CSP (no inline styles either), pages `no-store`, GET/HEAD only.
+- `/metrics` (Prometheus text format, hand-written, no client library) is opt-in with `-metrics`; it shows counts and times, never finding details. Check changes with `promtool check metrics`.
 
 ## Release
 
@@ -84,7 +89,7 @@ Decided by the maintainer on 2026-10-14:
 
 ## Roadmap (next)
 
-- v0.1.0: test on real servers (firewalls, /boot kernels and real package states never appear in the container lab); tag v0.1.0-beta.2 first to exercise image publishing and signing (the release workflow's new jobs have only run locally), fix what turns up, then tag v0.1.0
+- v0.1.0: test on real servers (firewalls, /boot kernels and real package states never appear in the container lab); get a beta release through the full workflow first (v0.1.0-beta.2 failed at setup on 2026-10-20: cosign-installer has no floating v4 tag, now pinned to v4.1.2; the image and signing jobs have still never run), fix what turns up, then tag v0.1.0
 - nobet-web v2: OIDC login, read-only role, audit log of who viewed what (see design decisions)
-- Candidates (2026-10-19 list): Prometheus `/metrics` in nobet-web (findings per host and severity, scan age); alerts on changes through a `-on-change <command>` hook (the CLI must not link net/http); weak sshd ciphers/MACs/KEX (already in `sshd -T`); Docker API on TCP without TLS; sysctl hardening; automatic updates disabled; accounts with keys that have not logged in for months; Ansible inventory as `-i` input with host groups; CIS Benchmark IDs in the HTML report
+- Candidates: sysctl hardening; automatic updates disabled; accounts with keys that have not logged in for months; CIS Benchmark IDs in the HTML report (only with a verified mapping)
 - FS-003 follow-ups: shebang interpreters and files a script sources; root's own PATH directories (only crontab PATH= is checked); `Exec` lines with the `+` prefix in services that run as another user

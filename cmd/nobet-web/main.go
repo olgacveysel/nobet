@@ -37,6 +37,7 @@ func run(args []string) int {
 	stale := fs.Duration("stale", 48*time.Hour, "flag hosts without a successful scan for this long")
 	userHeader := fs.String("user-header", "", "request header in which your proxy passes the signed-in user (e.g. X-Forwarded-User), to log who viewed what")
 	keysFile := fs.String("keys", "", "file naming who each SSH key belongs to (as for nobet rootmap -keys), shown on the root access page")
+	metrics := fs.Bool("metrics", false, "also serve /metrics in the Prometheus text format (findings per host and severity, scan times, root keys)")
 	showVersion := fs.Bool("version", false, "print the version and exit")
 	fs.Usage = func() {
 		fmt.Fprint(fs.Output(), "Serve a read-only dashboard over nobet's saved scans.\n\n"+
@@ -76,7 +77,7 @@ func run(args []string) int {
 		}
 	}
 	logger := log.New(os.Stderr, "", log.LstdFlags)
-	srv, err := web.New(web.Options{HistoryDir: dir, Version: version, StaleAfter: *stale, UserHeader: *userHeader, KeysFile: *keysFile, Log: logger})
+	srv, err := web.New(web.Options{HistoryDir: dir, Version: version, StaleAfter: *stale, UserHeader: *userHeader, KeysFile: *keysFile, Metrics: *metrics, Log: logger})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "nobet-web:", err)
 		return 1

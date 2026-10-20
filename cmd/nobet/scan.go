@@ -31,6 +31,7 @@ func runScan(args []string) int {
 	histDir := addHistoryFlag(fs)
 	htmlPath := fs.String("html", "", "also write a self-contained HTML report (findings and root access map) to this file")
 	keysPath := addKeysFlag(fs)
+	onChange := fs.String("on-change", "", "run this shell command when the scan finds changes since the previous one, with them as JSON on stdin (as 'nobet diff -json') and the counts in $NOBET_CHANGES and $NOBET_CHANGED_HOSTS")
 	fs.BoolVar(jsonOut, "j", false, "shorthand for -json")
 	fs.BoolVar(plain, "p", false, "shorthand for -plain")
 	fs.StringVar(failOn, "f", "high", "shorthand for -fail-on")
@@ -53,6 +54,10 @@ func runScan(args []string) int {
 		return exitUsage
 	}
 	if !t.resolve(fs) {
+		return exitUsage
+	}
+	if *onChange != "" && *noSave {
+		fmt.Fprintln(os.Stderr, "nobet: -on-change compares with the saved history, so it cannot be used with -no-save")
 		return exitUsage
 	}
 
@@ -115,7 +120,7 @@ func runScan(args []string) int {
 		if *jsonOut {
 			out = os.Stderr
 		}
-		saveAndSummarize(out, *histDir, results, started)
+		saveAndSummarize(out, *histDir, results, started, *onChange)
 	}
 	return exitCode(results, threshold)
 }
@@ -158,8 +163,9 @@ func loadAllowlist(p string) (*allow.List, error) {
 }
 
 // saveAndSummarize stores the scan and prints a one-line drift summary
-// against each host's previous scan. History problems never fail a scan.
-func saveAndSummarize(out *os.File, histDir string, results []scan.HostResult, at time.Time) {
+// against each host's previous scan, then runs the -on-change command if
+// anything changed. History problems never fail a scan.
+func saveAndSummarize(out *os.File, histDir string, results []scan.HostResult, at time.Time, onChange string) {
 	dir, err := historyDir(histDir)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "nobet: scan history unavailable:", err)
@@ -186,6 +192,9 @@ func saveAndSummarize(out *os.File, histDir string, results []scan.HostResult, a
 
 	if changes, hosts := drift.Count(drifts); changes > 0 {
 		fmt.Fprintf(out, "%d change(s) on %d host(s) since the previous scan. Run 'nobet diff' for details.\n", changes, hosts)
+		if onChange != "" {
+			runHook(onChange, drifts)
+		}
 	}
 }
 

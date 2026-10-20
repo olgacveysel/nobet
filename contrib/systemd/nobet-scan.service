@@ -13,6 +13,8 @@ User=nobet
 Group=nobet
 Environment=NOBET_DATA_DIR=/var/lib/nobet
 ExecStart=/usr/bin/nobet scan -plain -i /etc/nobet/hosts -allow /etc/nobet/allowlist
+# To be told about changes, add a hook (see contrib/hooks), for example:
+# ExecStart=/usr/bin/nobet scan -plain -i /etc/nobet/hosts -allow /etc/nobet/allowlist -on-change /etc/nobet/on-change
 # 1 means findings were reported and 3 that some hosts were unreachable:
 # the scan itself worked and was saved.
 SuccessExitStatus=1 3

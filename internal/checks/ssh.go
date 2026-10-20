@@ -6,6 +6,97 @@ import (
 	"github.com/olgacveysel/nobet/internal/collect"
 )
 
+// weakAlgorithms are algorithms sshd should no longer offer, by sshd -T
+// keyword: Medium for broken or far too weak ones (RC4, 3DES, MD5, 1024-bit
+// DH, DSA), Low for deprecated ones (CBC modes, SHA-1 signatures and key
+// exchange). Plain hmac-sha1 and umac-64 stay out: they are in OpenSSH's
+// own defaults and not broken as MACs.
+var weakAlgorithms = map[string]map[string]Severity{
+	"ciphers": {
+		"3des-cbc": Medium, "blowfish-cbc": Medium, "cast128-cbc": Medium,
+		"arcfour": Medium, "arcfour128": Medium, "arcfour256": Medium,
+		"aes128-cbc": Low, "aes192-cbc": Low, "aes256-cbc": Low, "rijndael-cbc@lysator.liu.se": Low,
+	},
+	"macs": {
+		"hmac-md5": Medium, "hmac-md5-96": Medium, "hmac-md5-etm@openssh.com": Medium, "hmac-md5-96-etm@openssh.com": Medium,
+		"hmac-sha1-96": Low, "hmac-sha1-96-etm@openssh.com": Low,
+		"hmac-ripemd160": Low, "hmac-ripemd160@openssh.com": Low, "hmac-ripemd160-etm@openssh.com": Low,
+	},
+	"kexalgorithms": {
+		"diffie-hellman-group1-sha1":  Medium,
+		"diffie-hellman-group14-sha1": Low, "diffie-hellman-group-exchange-sha1": Low,
+	},
+	"hostkeyalgorithms": {
+		"ssh-dss": Medium, "ssh-dss-cert-v01@openssh.com": Medium,
+		"ssh-rsa": Low, "ssh-rsa-cert-v01@openssh.com": Low,
+	},
+	"pubkeyacceptedalgorithms": {
+		"ssh-dss": Medium, "ssh-dss-cert-v01@openssh.com": Medium,
+		"ssh-rsa": Low, "ssh-rsa-cert-v01@openssh.com": Low,
+	},
+}
+
+// algorithmKinds names sshd -T keywords for people, in report order.
+// OpenSSH before 8.5 calls pubkeyacceptedalgorithms pubkeyacceptedkeytypes.
+var algorithmKinds = []struct{ keyword, alias, name string }{
+	{"ciphers", "", "ciphers"},
+	{"macs", "", "MACs"},
+	{"kexalgorithms", "", "key exchange"},
+	{"hostkeyalgorithms", "", "host key signatures"},
+	{"pubkeyacceptedalgorithms", "pubkeyacceptedkeytypes", "user key signatures"},
+}
+
+var sshWeakAlgorithms = Check{
+	ID:    "SSH-005",
+	Title: "Weak SSH algorithms",
+	Run: func(f *collect.Facts) ([]Finding, string) {
+		if skip := sshdSkip(f); skip != "" {
+			return nil, skip
+		}
+		// Match blocks cannot change these keywords, so the global
+		// config is the whole story.
+		sev := Severity(-1)
+		var parts []string
+		for _, k := range algorithmKinds {
+			v := collect.SSHDFirst(f.SSHD, k.keyword)
+			if v == "" && k.alias != "" {
+				v = collect.SSHDFirst(f.SSHD, k.alias)
+			}
+			var weak []string
+			for _, a := range strings.Split(v, ",") {
+				if s, ok := weakAlgorithms[k.keyword][strings.TrimSpace(a)]; ok {
+					weak = append(weak, a)
+					if s > sev {
+						sev = s
+					}
+				}
+			}
+			if len(weak) > 0 {
+				parts = append(parts, k.name+": "+strings.Join(weak, ", "))
+			}
+		}
+		if len(parts) == 0 {
+			return nil, ""
+		}
+		title := "SSH server offers deprecated algorithms"
+		if sev == Medium {
+			title = "SSH server offers weak algorithms"
+		}
+		fix := "Remove them from Ciphers, MACs, KexAlgorithms, HostKeyAlgorithms and PubkeyAcceptedAlgorithms in sshd_config (a leading - removes from the defaults, e.g. Ciphers -*-cbc)"
+		switch f.OSRelease["ID"] {
+		case "rhel", "centos", "rocky", "almalinux", "ol", "fedora":
+			fix = "These come from the system crypto policy: update-crypto-policies --set DEFAULT:NO-SHA1 (or FUTURE), then restart sshd; or override the keywords in sshd_config"
+		}
+		return []Finding{{
+			CheckID:  "SSH-005",
+			Severity: sev,
+			Title:    title,
+			Detail:   strings.Join(parts, "; "),
+			Fix:      fix,
+		}}, ""
+	},
+}
+
 // sshdSkip returns why the sshd checks cannot run, or "" if they can.
 func sshdSkip(f *collect.Facts) string {
 	switch {

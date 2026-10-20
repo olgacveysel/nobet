@@ -279,14 +279,16 @@ func probeUsers(f *Facts) []string {
 // probeUsers and sampleAddr).
 func sshdMatchScript(users, addrs []string, port int) string {
 	return fmt.Sprintf(`PATH=$PATH:/usr/sbin:/sbin
+%sopts=$(sshd_opts)
+set -f
 for u in %s %s; do
   for a in %s %s; do
     echo "@@ctx $u $a"
-    sshd -T -C "user=$u,host=nobet.invalid,addr=$a,laddr=192.0.2.2,lport=%d" 2>&1 || echo "@@failed"
+    sshd -T -C "user=$u,host=nobet.invalid,addr=$a,laddr=192.0.2.2,lport=%d" $opts 2>&1 || echo "@@failed"
   done
 done
 true
-`, probeUser, strings.Join(users, " "), probeAddr, strings.Join(addrs, " "), port)
+`, sshdOptsFunc, probeUser, strings.Join(users, " "), probeAddr, strings.Join(addrs, " "), port)
 }
 
 // parseSSHDMatch reads sshdMatchScript output into contexts that hold the

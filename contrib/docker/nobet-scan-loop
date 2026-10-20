@@ -18,6 +18,8 @@ done
 set -- -plain -i "$conf/hosts" -identity "$key" -known-hosts "$conf/known_hosts"
 if [ -f "$conf/allowlist" ]; then set -- "$@" -allow "$conf/allowlist"; fi
 if [ -f "$conf/ssh_config" ]; then set -- "$@" -F "$conf/ssh_config"; else set -- "$@" -no-ssh-config; fi
+# An executable config/on-change runs when a scan finds changes (see contrib/hooks).
+if [ -x "$conf/on-change" ]; then set -- "$@" -on-change "$conf/on-change"; fi
 
 while :; do
   nobet scan "$@"

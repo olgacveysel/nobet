@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/olgacveysel/nobet/internal/fleet"
@@ -17,6 +18,7 @@ import (
 // command that scans hosts.
 type targets struct {
 	invPath     *string
+	groups      *string
 	local       *bool
 	concurrency *int
 	timeout     *time.Duration
@@ -42,7 +44,8 @@ it alongside remote hosts. Flags must come before host arguments.
 
 func addTargetFlags(fs *flag.FlagSet) *targets {
 	t := &targets{
-		invPath:     fs.String("i", "", "inventory file, one [user@]host[:port] per line"),
+		invPath:     fs.String("i", "", "inventory file: one [user@]host[:port] per line, an Ansible INI inventory, or the JSON of ansible-inventory --list"),
+		groups:      fs.String("group", "", "only these Ansible inventory groups (comma-separated; children included)"),
 		local:       fs.Bool("local", false, "also scan this machine when scanning remote hosts"),
 		concurrency: fs.Int("c", 10, "number of remote hosts to scan in parallel"),
 		timeout:     fs.Duration("timeout", 10*time.Second, "SSH connect timeout"),
@@ -66,11 +69,24 @@ func (t *targets) resolve(fs *flag.FlagSet) bool {
 	// username is the last resort (see sshconf.Resolve).
 	defUser := *t.user
 	var hosts []inventory.Host
+	if *t.groups != "" && *t.invPath == "" {
+		fmt.Fprintln(os.Stderr, "nobet: -group needs an Ansible inventory (-i)")
+		return false
+	}
 	if *t.invPath != "" {
-		hs, err := inventory.Load(*t.invPath, defUser)
+		var groups []string
+		for _, g := range strings.Split(*t.groups, ",") {
+			if g = strings.TrimSpace(g); g != "" {
+				groups = append(groups, g)
+			}
+		}
+		hs, skipped, err := inventory.Load(*t.invPath, defUser, groups)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "nobet:", err)
 			return false
+		}
+		if len(skipped) > 0 {
+			fmt.Fprintf(os.Stderr, "nobet: note: skipping %s (ansible_connection=local; use -local to scan this machine)\n", strings.Join(skipped, ", "))
 		}
 		if len(hs) == 0 && !*t.local {
 			fmt.Fprintf(os.Stderr, "nobet: %s contains no hosts\n", *t.invPath)

@@ -89,6 +89,7 @@ func All() []Check {
 		sshPasswordAuth,
 		sshEmptyPasswords,
 		sshX11Forwarding,
+		sshWeakAlgorithms,
 		uidZeroAccounts,
 		sudoNoPassword,
 		sudoShellEscape,
