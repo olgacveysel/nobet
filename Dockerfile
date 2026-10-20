@@ -20,7 +20,7 @@ RUN go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/nobet
  && go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/nobet-web ./cmd/nobet-web \
  && mkdir -p /out/data/scans
 
-FROM alpine:3.22 AS scanner
+FROM alpine:3.24 AS scanner
 COPY --from=build /out/nobet /usr/local/bin/nobet
 COPY --chmod=755 contrib/docker/nobet-scan-loop /usr/local/bin/nobet-scan-loop
 COPY --from=build --chown=65532:65532 /out/data /var/lib/nobet
