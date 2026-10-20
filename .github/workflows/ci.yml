@@ -4,6 +4,10 @@ on:
     branches: [master]
   pull_request:
   workflow_dispatch:
+  # Weekly, so govulncheck sees new advisories for dependencies even when
+  # nothing was pushed.
+  schedule:
+    - cron: "17 5 * * 1"
 
 permissions:
   contents: read
@@ -17,8 +21,8 @@ jobs:
         # in go.mod, which `go install` users may have.
         go: [stable, go.mod]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version: ${{ matrix.go == 'stable' && 'stable' || '' }}
           go-version-file: ${{ matrix.go == 'go.mod' && 'go.mod' || '' }}
@@ -33,7 +37,7 @@ jobs:
       - if: matrix.go == 'stable'
         run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
       - if: matrix.go == 'stable'
-        uses: goreleaser/goreleaser-action@v6
+        uses: goreleaser/goreleaser-action@v7
         with:
           version: "~> v2"
           args: check
@@ -45,18 +49,21 @@ jobs:
     needs: test
     if: github.event_name != 'pull_request'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version: stable
           check-latest: true
-      - uses: goreleaser/goreleaser-action@v6
+      # Same SBOMs as a release (syft); keyless signing only works in the
+      # release workflow.
+      - uses: anchore/sbom-action/download-syft@v0
+      - uses: goreleaser/goreleaser-action@v7
         with:
           version: "~> v2"
-          args: release --snapshot --clean
-      - uses: actions/upload-artifact@v4
+          args: release --snapshot --clean --skip=sign
+      - uses: actions/upload-artifact@v7
         with:
           name: packages
           path: |
@@ -65,13 +72,16 @@ jobs:
             dist/*.apk
           retention-days: 14
 
-  # The images compose.yaml builds.
+  # The images compose.yaml builds, for both architectures the release
+  # publishes (cross-compiled, so no emulation is needed to build them).
   docker:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - run: docker build --target scanner -t nobet-scanner:ci .
-      - run: docker build --target web -t nobet-web:ci .
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      - run: docker buildx build --platform linux/amd64,linux/arm64 --target scanner .
+      - run: docker buildx build --platform linux/amd64,linux/arm64 --target web .
+      - run: docker buildx build --target web --load -t nobet-web:ci .
       - run: docker run --rm nobet-web:ci -version
 
   # nobet scans Linux hosts but often runs from admin laptops; the ssh-agent
@@ -79,8 +89,8 @@ jobs:
   test-windows:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version: stable
           check-latest: true

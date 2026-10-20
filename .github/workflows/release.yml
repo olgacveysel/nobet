@@ -4,24 +4,91 @@ on:
     tags: ["v*"]
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
+  # Binaries, archives, SBOMs, deb/rpm/apk packages and signed checksums
+  # (.goreleaser.yaml), published as a GitHub release.
   release:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the release
+      id-token: write # keyless cosign signature for checksums.txt
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       # Release binaries get the newest Go and its security fixes; go.mod
       # only sets the minimum.
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version: stable
           check-latest: true
-      - uses: goreleaser/goreleaser-action@v6
+      - uses: sigstore/cosign-installer@v4
+      - uses: anchore/sbom-action/download-syft@v0
+      - uses: goreleaser/goreleaser-action@v7
         with:
           version: "~> v2"
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # The two images compose.yaml runs, for amd64 and arm64, with an SBOM and
+  # build provenance attached and a keyless cosign signature. Pre-release
+  # tags only get their version tag; `latest` and `X.Y` move on releases.
+  images:
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write # push to ghcr.io
+      id-token: write # keyless cosign signature
+    strategy:
+      matrix:
+        include:
+          - target: scanner
+            description: nöbet scanner, runs nobet scan on a schedule (holds the SSH key)
+          - target: web
+            description: nobet-web, the read-only nöbet team dashboard (holds no SSH keys)
+    env:
+      IMAGE: ghcr.io/${{ github.repository_owner }}/nobet-${{ matrix.target }}
+      DOCKER_METADATA_ANNOTATIONS_LEVELS: manifest,index
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+          labels: |
+            org.opencontainers.image.title=nobet-${{ matrix.target }}
+            org.opencontainers.image.description=${{ matrix.description }}
+          annotations: |
+            org.opencontainers.image.title=nobet-${{ matrix.target }}
+            org.opencontainers.image.description=${{ matrix.description }}
+      - id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          target: ${{ matrix.target }}
+          platforms: linux/amd64,linux/arm64
+          build-args: VERSION=${{ steps.meta.outputs.version }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          annotations: ${{ steps.meta.outputs.annotations }}
+          provenance: mode=max
+          sbom: true
+          push: true
+      - uses: sigstore/cosign-installer@v4
+      - name: Sign the image
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: cosign sign --yes "$IMAGE@$DIGEST"

@@ -6,3 +6,4 @@ dist
 nobet
 nobet-web
 *.exe
+.env

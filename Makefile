@@ -14,9 +14,11 @@ test:
 vet:
 	go vet ./...
 
-# Local dry run of a release (needs goreleaser and a git repository).
+# Local dry run of a release: binaries, archives and deb/rpm/apk packages in
+# dist/ (needs goreleaser and a git repository). Signatures and SBOMs come
+# with real releases.
 snapshot:
-	goreleaser release --snapshot --clean
+	goreleaser release --snapshot --clean --skip=sign,sbom
 
 clean:
 	rm -rf nobet nobet-web dist

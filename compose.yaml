@@ -13,8 +13,13 @@
 #   ssh-keygen -F web01 >> config/known_hosts        # trusted host keys, per host
 #   ssh-keygen -t ed25519 -N '' -C nobet-scan -f secrets/id_ed25519
 #   sudo chown 65532 secrets/id_ed25519              # the containers' user
-#   docker compose up -d --build
+#   docker compose up -d
 #   open http://127.0.0.1:8080
+#
+# Images: the signed release images from ghcr.io, pinned with NOBET_VERSION
+# (for example NOBET_VERSION=0.1.0 in a .env file next to this one; the
+# default is latest). `docker compose up -d --build` builds them from this
+# checkout instead, and Compose also builds when the image cannot be pulled.
 name: nobet
 
 services:
@@ -22,7 +27,7 @@ services:
     build:
       context: .
       target: scanner
-    image: nobet-scanner:local
+    image: ghcr.io/olgacveysel/nobet-scanner:${NOBET_VERSION:-latest}
     restart: unless-stopped
     environment:
       NOBET_INTERVAL: 24h
@@ -40,7 +45,7 @@ services:
     build:
       context: .
       target: web
-    image: nobet-web:local
+    image: ghcr.io/olgacveysel/nobet-web:${NOBET_VERSION:-latest}
     restart: unless-stopped
     # Starting after the scanner lets it create the shared volume with the
     # right owner.

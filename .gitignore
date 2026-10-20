@@ -3,6 +3,11 @@
 /nobet-web
 /nobet-web.exe
 /dist/
+# Test packages downloaded from CI (gh run download)
+/*.deb
+/*.rpm
+/*.apk
 # Docker Compose deployment: host lists and the scanning key
 /config/
 /secrets/
+/.env
