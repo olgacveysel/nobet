@@ -1,0 +1,22 @@
+#!/bin/sh
+# nöbet -on-change hook: posts what changed to a Slack or Mattermost
+# incoming webhook. nobet passes the changes as JSON on stdin; this hook
+# only needs NOBET_SUMMARY_JSON (up to 20 changes as a JSON string), so it
+# runs with curl or with busybox wget, as in the scanner image.
+#
+#   cp contrib/hooks/slack /etc/nobet/on-change
+#   echo 'https://hooks.slack.com/services/...' > /etc/nobet/slack-webhook
+#   chgrp nobet /etc/nobet/slack-webhook; chmod 640 /etc/nobet/slack-webhook
+#   nobet scan ... -on-change /etc/nobet/on-change
+#
+# In Docker Compose: put it in config/on-change (executable) and the URL in
+# config/slack-webhook; the scanner runs it after each scan with changes.
+set -eu
+url=$(cat "${NOBET_WEBHOOK_FILE:-/etc/nobet/slack-webhook}")
+payload="{\"text\": ${NOBET_SUMMARY_JSON:?run this from nobet scan -on-change}}"
+
+if command -v curl >/dev/null 2>&1; then
+  printf '%s' "$payload" | curl -fsS --max-time 30 -H 'Content-Type: application/json' --data-binary @- "$url" >/dev/null
+else
+  wget -q -T 30 -O /dev/null --header 'Content-Type: application/json' --post-data "$payload" "$url"
+fi
