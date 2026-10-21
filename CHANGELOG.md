@@ -1,8 +1,8 @@
 # Changelog
 
-## v0.1.0 — first release
+## v0.1.0 — 2026-10-21
 
-nöbet audits Linux servers over SSH, or the machine it runs on, without installing anything on them.
+The first release. nöbet audits Linux servers over SSH, or the machine it runs on, without installing anything on them.
 
 **Scanning**
 - `nobet scan`: local machine, hosts on the command line, or an inventory file; parallel, read-only, strict host key checking.
@@ -36,7 +36,7 @@ nöbet audits Linux servers over SSH, or the machine it runs on, without install
 **Team dashboard (`nobet-web`, separate package)**
 - Read-only view of a shared scan history: fleet status and 30-day trend, each host's findings, allowlist decisions, skipped checks and scan history, all changes between scans, and the root access map.
 - Never scans and holds no SSH keys; the build is tested to contain no SSH client. Listens on localhost behind your authenticating reverse proxy (and can log the user the proxy reports), or signs users in itself (below).
-- Strict Content-Security-Policy (no scripts at all), no caching of pages, GET/HEAD only.
+- Strict Content-Security-Policy (no scripts at all), no caching of pages; GET/HEAD only, apart from the opt-in scan request form.
 - Report downloads (HTML and PDF) from each host's newest scan.
 - "Scan now" (`-scan-queue`): users ask for a scan of every host or one host; nobet-web only writes a request, and `nobet scan -queue` (systemd path unit, or the Docker scanner) runs it as the scanner account. Off by default; `-scan-users`/`-scan-groups` say who may ask.
 - Built-in sign-in with OpenID Connect (`-oidc-issuer`): authorization code flow with PKCE, allowed users or groups (nobody by default), signed session cookies; or keep using an authenticating proxy.
@@ -49,7 +49,7 @@ nöbet audits Linux servers over SSH, or the machine it runs on, without install
 
 **Releases**
 - Binaries for Linux, macOS and Windows; `nobet` and `nobet-web` deb, rpm and apk packages.
-- An SPDX SBOM per archive, and a keyless Sigstore signature over `checksums.txt` (from v0.1.0-beta.2).
+- An SPDX SBOM per archive, and a keyless Sigstore signature over `checksums.txt`.
 - Container images on ghcr.io (`nobet-scanner`, `nobet-web`) for amd64 and arm64, signed, with SBOM and build provenance; `compose.yaml` uses them and can pin a version (`NOBET_VERSION`).
 
 **Scale**

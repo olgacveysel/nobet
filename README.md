@@ -35,7 +35,7 @@ To build from a checkout: `make test build` (builds `nobet` and `nobet-web`).
 
 ### Verify a download
 
-Releases after v0.1.0-beta.1 come with an SPDX SBOM per archive (`*.sbom.json`) and a signed `checksums.txt`. The signature is keyless ([Sigstore](https://www.sigstore.dev/)): it proves the file was made by this repository's release workflow for a tag, and it is recorded in a public transparency log. With [cosign](https://docs.sigstore.dev/cosign/system_config/installation/):
+Releases come with an SPDX SBOM per archive (`*.sbom.json`) and a signed `checksums.txt`. The signature is keyless ([Sigstore](https://www.sigstore.dev/)): it proves the file was made by this repository's release workflow for a tag, and it is recorded in a public transparency log. With [cosign](https://docs.sigstore.dev/cosign/system_config/installation/):
 
 ```bash
 cosign verify-blob checksums.txt --bundle checksums.txt.sigstore.json \
@@ -171,7 +171,7 @@ For complete remote results, the SSH user should be root or have passwordless su
 
 `nobet-web` is a separate, optional binary and package that shows the scan history to your team in a browser: fleet status with a 30-day trend, each host's findings and scan history, every change between scans, and the root access map.
 
-**It is read-only by design.** It never scans, never connects to your servers and holds no SSH keys (its build is tested to contain no SSH client at all). A systemd timer runs `nobet scan` under a service account and saves to a shared history directory, which the dashboard only reads. If the dashboard were compromised, an attacker would learn your weaknesses but could not act on them.
+**It is read-only by design.** It never scans, never connects to your servers and holds no SSH keys (its build is tested to contain no SSH client at all). A systemd timer runs `nobet scan` under a service account and saves to a shared history directory, which the dashboard only reads. If the dashboard were compromised, an attacker would learn your weaknesses but could not act on them; with scan requests turned on, they could at most ask for more read-only scans of hosts the scanner already knows.
 
 **Access control comes first.** By default it listens on `127.0.0.1:8080` and belongs behind a reverse proxy that authenticates your team (oauth2-proxy, Authelia, Authentik, Pomerium or your SSO). If the proxy passes the signed-in user in a header, add `-user-header X-Forwarded-User` (or `Remote-User`, ...) to log who viewed which page. `-keys /etc/nobet/keys` names key owners on the root access page (the file is read on every view). The root access map shows which key opens which server, so never expose the dashboard directly.
 

@@ -26,10 +26,21 @@ jobs:
           check-latest: true
       - uses: sigstore/cosign-installer@v4.1.2
       - uses: anchore/sbom-action/download-syft@v0
+      # Release notes: this version's section of CHANGELOG.md (v0.1.0-rc1
+      # uses the v0.1.0 section). Without one, goreleaser lists the commits.
+      - name: Release notes
+        id: notes
+        run: |
+          version=${GITHUB_REF_NAME#v}
+          base=${version%%-*}
+          awk -v h="## v$base" 'index($0, h " ") == 1 || $0 == h { found = 1; next } /^## / && found { exit } found' CHANGELOG.md > "$RUNNER_TEMP/notes.md"
+          if [ -s "$RUNNER_TEMP/notes.md" ]; then
+            echo "args=--release-notes $RUNNER_TEMP/notes.md" >> "$GITHUB_OUTPUT"
+          fi
       - uses: goreleaser/goreleaser-action@v7
         with:
           version: "~> v2"
-          args: release --clean
+          args: release --clean ${{ steps.notes.outputs.args }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

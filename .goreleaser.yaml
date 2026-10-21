@@ -89,7 +89,9 @@ signs:
     args: [sign-blob, "--bundle=${signature}", "${artifact}", "--yes"]
 
 release:
-  # Tags such as v0.1.0-beta.1 are published as GitHub pre-releases.
+  # Tags such as v0.1.0-rc1 are published as GitHub pre-releases. Write
+  # pre-release tags without a dot (rc1, beta4): apk only accepts versions
+  # like 0.1.0_rc1, and nfpm turns -rc.1 into the invalid 0.1.0_rc.1.
   prerelease: auto
 
 nfpms:
