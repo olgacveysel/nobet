@@ -40,6 +40,18 @@ type HostSnapshot struct {
 }
 
 // Active returns the findings the allowlist did not cover at scan time.
+// Result turns a saved scan back into a scan result, for reports: active
+// findings, with the allowlisted ones as suppressed.
+func (h HostSnapshot) Result() scan.HostResult {
+	r := scan.HostResult{Host: h.Host, Local: h.Local, Error: h.Error, Findings: h.Active(),
+		Suppressed: h.Allowlisted, Skipped: h.Skipped, DurationMS: h.DurationMS, Facts: h.Facts}
+	if h.Facts != nil {
+		r.OS = h.Facts.OSRelease["PRETTY_NAME"]
+		r.Privileged = h.Facts.Privileged()
+	}
+	return r
+}
+
 func (h HostSnapshot) Active() []checks.Finding {
 	covered := map[string]bool{}
 	for _, s := range h.Allowlisted {

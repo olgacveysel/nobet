@@ -10,7 +10,7 @@ nöbet audits Linux servers over SSH, or the machine it runs on, without install
 - Resolves hosts through `~/.ssh/config` (or a file given with `-F`): aliases, users, ports, identity files and `ProxyJump` chains.
 - Uses ssh-agent on Linux, macOS and Windows (OpenSSH Authentication Agent named pipe).
 - Interactive TUI with live progress, per-host findings, a severity filter and a fleet-wide root access view; plain text and JSON for scripts and CI.
-- HTML report for auditors (`-html`), self-contained and print-ready.
+- HTML and PDF reports for auditors (`-html`, `-pdf`).
 - Exit codes for automation (`-fail-on`).
 
 **Checks**
@@ -37,6 +37,8 @@ nöbet audits Linux servers over SSH, or the machine it runs on, without install
 - Read-only view of a shared scan history: fleet status and 30-day trend, each host's findings, allowlist decisions, skipped checks and scan history, all changes between scans, and the root access map.
 - Never scans and holds no SSH keys; the build is tested to contain no SSH client. Listens on localhost behind your authenticating reverse proxy (and can log the user the proxy reports), or signs users in itself (below).
 - Strict Content-Security-Policy (no scripts at all), no caching of pages, GET/HEAD only.
+- Report downloads (HTML and PDF) from each host's newest scan.
+- "Scan now" (`-scan-queue`): users ask for a scan of every host or one host; nobet-web only writes a request, and `nobet scan -queue` (systemd path unit, or the Docker scanner) runs it as the scanner account. Off by default; `-scan-users`/`-scan-groups` say who may ask.
 - Built-in sign-in with OpenID Connect (`-oidc-issuer`): authorization code flow with PKCE, allowed users or groups (nobody by default), signed session cookies; or keep using an authenticating proxy.
 - Audit log (`-audit-log`): one JSON line per page view, sign-in, refusal and sign-out, with the user.
 - HTTPS (`-tls-cert`, `-tls-key`), and metrics on a separate listener (`-metrics-listen`).

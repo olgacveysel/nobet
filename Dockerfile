@@ -18,12 +18,13 @@ ARG TARGETOS TARGETARCH
 ENV CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH
 RUN go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/nobet ./cmd/nobet \
  && go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/nobet-web ./cmd/nobet-web \
- && mkdir -p /out/data/scans
+ && mkdir -p /out/data/scans /out/queue
 
 FROM alpine:3.24 AS scanner
 COPY --from=build /out/nobet /usr/local/bin/nobet
 COPY --chmod=755 contrib/docker/nobet-scan-loop /usr/local/bin/nobet-scan-loop
 COPY --from=build --chown=65532:65532 /out/data /var/lib/nobet
+COPY --from=build --chown=65532:65532 /out/queue /var/lib/nobet-queue
 ENV NOBET_DATA_DIR=/var/lib/nobet HOME=/var/lib/nobet
 USER 65532:65532
 ENTRYPOINT ["/usr/local/bin/nobet-scan-loop"]
@@ -31,6 +32,7 @@ ENTRYPOINT ["/usr/local/bin/nobet-scan-loop"]
 FROM gcr.io/distroless/static-debian12:nonroot AS web
 COPY --from=build /out/nobet-web /usr/local/bin/nobet-web
 COPY --from=build --chown=65532:65532 /out/data /var/lib/nobet
+COPY --from=build --chown=65532:65532 /out/queue /var/lib/nobet-queue
 ENV NOBET_DATA_DIR=/var/lib/nobet
 USER 65532:65532
 EXPOSE 8080

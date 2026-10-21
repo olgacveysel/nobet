@@ -1,12 +1,25 @@
 #!/bin/sh
 # Entry point of the scanner image: runs `nobet scan` now, then every
-# NOBET_INTERVAL (a sleep duration such as 24h or 6h; "once" scans once and
-# exits). Configuration is mounted at /etc/nobet and the SSH key comes in as
-# the ssh_key secret; see compose.yaml.
+# NOBET_INTERVAL (a duration such as 24h, 6h or 30m; "once" scans once and
+# exits). In between it checks the queue that nobet-web writes scan requests
+# to (/var/lib/nobet-queue) every 30 seconds. Configuration is mounted at
+# /etc/nobet and the SSH key comes in as the ssh_key secret; see compose.yaml.
 set -u
 conf=/etc/nobet
 key=${NOBET_SSH_KEY:-/run/secrets/ssh_key}
 interval=${NOBET_INTERVAL:-24h}
+queue=${NOBET_QUEUE:-/var/lib/nobet-queue}
+
+# seconds turns 30s, 15m, 6h or 1d into seconds.
+seconds() {
+  case $1 in
+    *d) echo $(( ${1%d} * 86400 )) ;;
+    *h) echo $(( ${1%h} * 3600 )) ;;
+    *m) echo $(( ${1%m} * 60 )) ;;
+    *s) echo "${1%s}" ;;
+    *) echo "$1" ;;
+  esac
+}
 
 for f in "$conf/hosts" "$conf/known_hosts" "$key"; do
   if [ ! -r "$f" ]; then
@@ -30,5 +43,11 @@ while :; do
     *) echo "nobet-scan: scan failed with exit status $rc" >&2 ;;
   esac
   [ "$interval" = once ] && exit "$rc"
-  sleep "$interval"
+  next=$(( $(date +%s) + $(seconds "$interval") ))
+  while [ "$(date +%s)" -lt "$next" ]; do
+    if [ -d "$queue" ] && ls "$queue"/*.json >/dev/null 2>&1; then
+      nobet scan "$@" -queue "$queue"
+    fi
+    sleep 30
+  done
 done

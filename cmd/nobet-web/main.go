@@ -42,6 +42,9 @@ func run(args []string) int {
 	metrics := fs.Bool("metrics", false, "also serve /metrics in the Prometheus text format (findings per host and severity, scan times, root keys)")
 	metricsListen := fs.String("metrics-listen", "", "serve /metrics on this separate address instead (for example 127.0.0.1:9187), which needs no sign-in")
 	auditLog := fs.String("audit-log", "", "append every page view and sign-in, with the user, to this file as JSON lines")
+	scanQueue := fs.String("scan-queue", "", "let users ask for scans: requests go to this directory, where `nobet scan -queue` (run as the scanner account) picks them up; nobet-web itself never scans")
+	scanUsers := fs.String("scan-users", "", "who may ask for scans, comma-separated (default: everyone who can view)")
+	scanGroups := fs.String("scan-groups", "", "with -oidc-issuer: groups whose members may ask for scans, comma-separated")
 	tlsCert := fs.String("tls-cert", "", "serve HTTPS with this certificate (PEM; with -tls-key)")
 	tlsKey := fs.String("tls-key", "", "private key for -tls-cert")
 	var oc oidcFlags
@@ -98,6 +101,15 @@ func run(args []string) int {
 		fmt.Fprintln(os.Stderr, "nobet-web: -user-header is for a proxy that signs users in; with -oidc-issuer nobet-web does that itself")
 		return 2
 	}
+	if *scanQueue != "" {
+		if st, err := os.Stat(*scanQueue); err != nil || !st.IsDir() {
+			fmt.Fprintf(os.Stderr, "nobet-web: -scan-queue %s: not a directory nobet-web can use\n", *scanQueue)
+			return 2
+		}
+	} else if *scanUsers != "" || *scanGroups != "" {
+		fmt.Fprintln(os.Stderr, "nobet-web: -scan-users and -scan-groups need -scan-queue")
+		return 2
+	}
 	var audit io.Writer
 	if *auditLog != "" {
 		f, err := os.OpenFile(*auditLog, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o640)
@@ -110,7 +122,8 @@ func run(args []string) int {
 	}
 	logger := log.New(os.Stderr, "", log.LstdFlags)
 	srv, err := web.New(web.Options{HistoryDir: dir, Version: version, StaleAfter: *stale, UserHeader: *userHeader, KeysFile: *keysFile,
-		Metrics: *metrics && *metricsListen == "", Auth: authCfg, Audit: audit, Log: logger})
+		Metrics: *metrics && *metricsListen == "", Auth: authCfg, Audit: audit, Log: logger,
+		ScanQueue: *scanQueue, ScanUsers: list(*scanUsers), ScanGroups: list(*scanGroups)})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "nobet-web:", err)
 		return 1

@@ -5,6 +5,7 @@
   {{if .Row.OS}}{{.Row.OS}} · {{end}}
   {{if .Scanned}}scanned <span title="{{when .ScanTime}}">{{ago .ScanTime}}</span>{{if .Row.Privileged}} with root privileges{{else}} without root: some checks were skipped{{end}}{{end}}
 </p>
+{{template "scanbox" .}}
 
 {{if .Row.Error}}
 <div class="notice notice-error">

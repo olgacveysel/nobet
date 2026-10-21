@@ -137,6 +137,35 @@ func (t *targets) resolve(fs *flag.FlagSet) bool {
 	return true
 }
 
+// only keeps the targets with these names (the local machine as
+// scan.LocalName()) and returns the names that matched none.
+func (t *targets) only(names []string) (unknown []string) {
+	want := map[string]bool{}
+	for _, n := range names {
+		want[n] = true
+	}
+	found := map[string]bool{}
+	if t.doLocal && want[scan.LocalName()] {
+		found[scan.LocalName()] = true
+	} else {
+		t.doLocal = false
+	}
+	var keep []fleet.Target
+	for _, h := range t.hosts {
+		if want[h.Name] {
+			keep = append(keep, h)
+			found[h.Name] = true
+		}
+	}
+	t.hosts = keep
+	for _, n := range names {
+		if !found[n] {
+			unknown = append(unknown, n)
+		}
+	}
+	return unknown
+}
+
 // names lists every target in scan order: local machine first.
 func (t *targets) names() []string {
 	var out []string

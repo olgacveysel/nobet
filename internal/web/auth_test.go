@@ -345,3 +345,37 @@ func TestAuditBehindProxy(t *testing.T) {
 		t.Errorf("audit: %q", audit.String())
 	}
 }
+
+// With built-in sign-in, who may ask for scans is decided at sign-in.
+func TestSignInScanPermission(t *testing.T) {
+	p := newFakeProvider(t)
+	dir, qdir := t.TempDir(), t.TempDir()
+	history(t, dir)
+	s, err := New(Options{HistoryDir: dir, Version: "test", Now: func() time.Time { return now },
+		Auth:      &OIDCConfig{Issuer: p.URL, ClientID: "nobet", PublicURL: "https://nobet.example.com", AnyUser: true},
+		ScanQueue: qdir, ScanGroups: []string{"ops"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		claims map[string]any
+		want   int
+	}{
+		{map[string]any{"sub": "viewer", "groups": []any{"dev"}}, http.StatusForbidden},
+		{map[string]any{"sub": "operator", "groups": []any{"ops"}}, http.StatusSeeOther},
+	} {
+		b := &browser{t: t, h: s.Handler(), cookies: map[string]*http.Cookie{}}
+		signIn(t, b, p, "/", c.claims)
+		req := httptest.NewRequest("POST", "/scan", strings.NewReader(""))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.Header.Set("Sec-Fetch-Site", "same-origin")
+		for _, ck := range b.cookies {
+			req.AddCookie(ck)
+		}
+		rec := httptest.NewRecorder()
+		s.Handler().ServeHTTP(rec, req)
+		if rec.Code != c.want {
+			t.Errorf("%v: POST /scan = %d, want %d", c.claims["sub"], rec.Code, c.want)
+		}
+	}
+}

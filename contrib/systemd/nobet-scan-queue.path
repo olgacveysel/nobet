@@ -1,0 +1,17 @@
+# Starts nobet-scan-queue.service when someone asks for a scan in nobet-web
+# (nobet-web -scan-queue /var/lib/nobet/queue). nobet-web only writes the
+# request; the scan runs as the nobet account, which holds the SSH key.
+#
+# One-time setup:
+#   install -d -o nobet -g nobet -m 2770 /var/lib/nobet/queue
+#   systemctl enable --now nobet-scan-queue.path
+[Unit]
+Description=Scan requests from the nöbet dashboard
+Documentation=https://github.com/olgacveysel/nobet
+
+[Path]
+PathExistsGlob=/var/lib/nobet/queue/*.json
+Unit=nobet-scan-queue.service
+
+[Install]
+WantedBy=paths.target

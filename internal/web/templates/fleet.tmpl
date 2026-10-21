@@ -6,7 +6,8 @@
   <p>Save scans there with <code>nobet scan -p -history-dir {{.HistoryDir}} -i hosts.txt</code>, or set <code>NOBET_DATA_DIR</code> for the scanning account. The README shows a systemd timer that does this nightly.</p>
 </section>
 {{else}}
-<h1>Fleet</h1>
+<div class="page-head"><h1>Fleet</h1><p class="downloads">Report for auditors: <a href="/report.pdf">PDF</a> · <a href="/report.html">HTML</a></p></div>
+{{template "scanbox" .}}
 <section class="tiles">
   {{range .Severities}}<div class="tile"><div class="n sev-text-{{.}}">{{index $.Totals .}}</div><div class="l">{{.}}</div></div>{{end}}
   <div class="tile"><div class="n{{if .Unreachable}} sev-text-critical{{end}}">{{.Unreachable}}</div><div class="l">unreachable</div></div>

@@ -14,6 +14,7 @@ import (
 
 	"github.com/olgacveysel/nobet/internal/checks"
 	"github.com/olgacveysel/nobet/internal/collect"
+	"github.com/olgacveysel/nobet/internal/queue"
 	"github.com/olgacveysel/nobet/internal/scan"
 	"github.com/olgacveysel/nobet/internal/store"
 )
@@ -306,5 +307,119 @@ func TestRootPageOwners(t *testing.T) {
 	}
 	if body := get(t, h, "GET", "/root").Body.String(); !strings.Contains(body, "<b>keys file</b>: "+keysFile+": line 1") {
 		t.Errorf("a broken keys file should show as incomplete:\n%s", body)
+	}
+}
+
+func TestReportDownloads(t *testing.T) {
+	dir := t.TempDir()
+	history(t, dir)
+	h := newServer(t, dir, nil)
+	pdf := get(t, h, "GET", "/report.pdf")
+	if pdf.Code != 200 || pdf.Header().Get("Content-Type") != "application/pdf" ||
+		!strings.HasPrefix(pdf.Header().Get("Content-Disposition"), `attachment; filename="nobet-report-2026-10-14.pdf"`) ||
+		!strings.HasPrefix(pdf.Body.String(), "%PDF-") {
+		t.Errorf("PDF: %d %q %q", pdf.Code, pdf.Header().Get("Content-Type"), pdf.Header().Get("Content-Disposition"))
+	}
+	html := get(t, h, "GET", "/report.html")
+	body := html.Body.String()
+	if html.Code != 200 || !strings.Contains(html.Header().Get("Content-Disposition"), "attachment") ||
+		!strings.Contains(body, "web01") || !strings.Contains(body, "Passwordless sudo for ALL commands") || !strings.Contains(body, "db01") {
+		t.Errorf("HTML: %d", html.Code)
+	}
+	if fleet := get(t, h, "GET", "/").Body.String(); !strings.Contains(fleet, `href="/report.pdf"`) {
+		t.Error("the fleet page should link the reports")
+	}
+}
+
+func scanServer(t *testing.T, opts Options) (http.Handler, string) {
+	t.Helper()
+	dir, qdir := t.TempDir(), t.TempDir()
+	history(t, dir)
+	opts.HistoryDir, opts.ScanQueue, opts.Version = dir, qdir, "test"
+	opts.Now = func() time.Time { return now }
+	s, err := New(opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s.Handler(), qdir
+}
+
+func post(t *testing.T, h http.Handler, path, form string, header map[string]string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest("POST", path, strings.NewReader(form))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Sec-Fetch-Site", "same-origin")
+	req.Header.Set("X-Forwarded-User", "alice@example.com")
+	for k, v := range header {
+		req.Header.Set(k, v)
+	}
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	return rec
+}
+
+func TestScanRequests(t *testing.T) {
+	var audit bytes.Buffer
+	h, qdir := scanServer(t, Options{UserHeader: "X-Forwarded-User", Audit: &audit})
+	if body := get(t, h, "GET", "/").Body.String(); !strings.Contains(body, `<form method="post" action="/scan">`) || !strings.Contains(body, "Scan all hosts now") {
+		t.Fatal("the fleet page should offer a scan")
+	}
+	if body := get(t, h, "GET", "/host/web01").Body.String(); !strings.Contains(body, `name="host" value="web01"`) {
+		t.Error("a host page should offer to rescan that host")
+	}
+
+	// A form posted from another site is refused before it is read.
+	if rec := post(t, h, "/scan", "", map[string]string{"Sec-Fetch-Site": "cross-site"}); rec.Code != http.StatusForbidden {
+		t.Errorf("cross-site POST: %d", rec.Code)
+	}
+	if rec := post(t, h, "/scan", "host=nope", nil); rec.Code != http.StatusBadRequest {
+		t.Errorf("unknown host: %d", rec.Code)
+	}
+
+	rec := post(t, h, "/scan", "host=web01", nil)
+	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/host/web01" {
+		t.Fatalf("scan request: %d %q %s", rec.Code, rec.Header().Get("Location"), rec.Body)
+	}
+	p, err := queue.List(qdir)
+	if err != nil || len(p) != 1 || p[0].User != "alice@example.com" || strings.Join(p[0].Hosts, ",") != "web01" {
+		t.Fatalf("queue: %+v %v", p, err)
+	}
+	if rec := post(t, h, "/scan", "", nil); rec.Code != http.StatusConflict {
+		t.Errorf("second request while one waits: %d", rec.Code)
+	}
+	if body := get(t, h, "GET", "/").Body.String(); !strings.Contains(body, "Scan queued, waiting for the scanner (web01): asked by alice@example.com") || strings.Contains(body, "Scan all hosts now") {
+		t.Error("the fleet page should show the waiting request instead of the button")
+	}
+	if !strings.Contains(audit.String(), `"event":"scan_requested","user":"alice@example.com","method":"POST","path":"/scan","status":303`) ||
+		!strings.Contains(audit.String(), `"reason":"web01"`) {
+		t.Errorf("audit log:\n%s", audit.String())
+	}
+
+	// The scanner finishes it.
+	claimed, _ := queue.Claim(qdir)
+	queue.Finish(qdir, []queue.Done{{Request: claimed[0], Finished: now, Scanned: []string{"web01"}}})
+	if body := get(t, h, "GET", "/").Body.String(); !strings.Contains(body, "Last scan asked for here: by alice@example.com (web01), finished") {
+		t.Error("the fleet page should show the last finished request")
+	}
+}
+
+func TestScanRequestsRestricted(t *testing.T) {
+	h, qdir := scanServer(t, Options{UserHeader: "X-Forwarded-User", ScanUsers: []string{"ops@example.com"}})
+	if body := get(t, h, "GET", "/").Body.String(); strings.Contains(body, "Scan all hosts now") {
+		t.Error("alice may not ask for scans and should not get the button")
+	}
+	if rec := post(t, h, "/scan", "", nil); rec.Code != http.StatusForbidden {
+		t.Errorf("not allowed: %d", rec.Code)
+	}
+	if rec := post(t, h, "/scan", "", map[string]string{"X-Forwarded-User": "OPS@example.com"}); rec.Code != http.StatusSeeOther {
+		t.Errorf("allowed user: %d", rec.Code)
+	}
+	if p, _ := queue.List(qdir); len(p) != 1 || len(p[0].Hosts) != 0 {
+		t.Errorf("queue: %+v", p)
+	}
+	// Without -scan-queue there is nothing to post to.
+	plain := newServer(t, t.TempDir(), nil)
+	if rec := post(t, plain, "/scan", "", nil); rec.Code != http.StatusMethodNotAllowed && rec.Code != http.StatusNotFound {
+		t.Errorf("scan requests off: %d", rec.Code)
 	}
 }

@@ -111,7 +111,7 @@ alice  ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA... alice@desktop
 ci     SHA256:HRmMEMU9cyejr7STBxyzzOI4cfmC7Xkho7aTuOfNdNA   # deploy pipeline
 ```
 
-Each key is then labelled with its owner, and keys that lead to root without an owner in the file are counted and marked `(no known owner)`. The same file names owners in the TUI's root view, the HTML report and `nobet-web -keys`. When someone leaves:
+Each key is then labelled with its owner, and keys that lead to root without an owner in the file are counted and marked `(no known owner)`. The same file names owners in the TUI's root view, the HTML and PDF reports and `nobet-web -keys`. When someone leaves:
 
 ```bash
 nobet rootmap -i hosts.txt -who alice
@@ -119,13 +119,13 @@ nobet rootmap -i hosts.txt -who alice
 
 lists every host where Alice's keys reach root, any other key that reaches an account named `alice`, and `alice` accounts that can become root without a key. Without a keys file, `-who` matches key comments (`alice` or `alice@...`) instead.
 
-### HTML report
+### HTML and PDF reports
 
 ```bash
-nobet scan -p -i hosts.txt -html report.html
+nobet scan -p -i hosts.txt -html report.html -pdf report.pdf
 ```
 
-Writes a single self-contained HTML file (no external scripts, fonts or images) with a severity summary, every host's findings with fixes, allowlisted findings with their reasons, skipped checks, and the root access map. It prints cleanly to PDF for auditors. The file is created with mode 0600 because it describes weaknesses and access paths.
+`-html` writes a single self-contained HTML file (no external scripts, fonts or images) and `-pdf` an A4 PDF, both with a severity summary, a table of hosts (worst first), every host's findings with fixes, allowlisted findings with their reasons, skipped checks, and the root access map. The files are created with mode 0600 because they describe weaknesses and access paths. The dashboard offers the same reports for download, from each host's newest scan.
 
 In the TUI, press `r` to switch to the root access map for the hosts scanned so far.
 
@@ -207,6 +207,16 @@ sudo systemctl start nobet-scan.service   # the first scan now rather than tonig
 ```
 
 Both units are hardened (`systemd-analyze security` rates the dashboard 1.3 and the scanner 3.4, where 10 is unconfined); the dashboard cannot read `/var/lib/nobet/.ssh` and only accepts local connections. Hosts without a successful scan for 48 hours are flagged (`-stale`).
+
+#### Scans from the dashboard
+
+```bash
+install -d -o nobet -g nobet -m 2770 /var/lib/nobet/queue
+nobet-web -listen 127.0.0.1:8080 -scan-queue /var/lib/nobet/queue
+systemctl enable --now nobet-scan-queue.path
+```
+
+With `-scan-queue`, the fleet page offers "Scan all hosts now" and each host page "Rescan this host". nobet-web still never scans and never touches the SSH key: it writes a small request file (who asked, which hosts) to the queue directory, and `nobet scan -queue` (from `nobet-scan-queue.path`, as the `nobet` account) scans the requested hosts that are in its own inventory and records the outcome, which the dashboard shows. One request can wait at a time; requests are in the audit log; the form only works from the dashboard's own pages (Go's cross-origin protection checks `Sec-Fetch-Site` and `Origin`). Everyone who may view may ask for scans unless `-scan-users` (or, with sign-in, `-scan-groups`) narrows it. In Docker, add `"-scan-queue", "/var/lib/nobet-queue"` to the web service's command; the scanner checks that queue every 30 seconds.
 
 #### Sign-in
 
@@ -336,7 +346,7 @@ UPD-004 knows Ubuntu, Debian (including its free LTS period) and Raspbian, RHEL,
 - [x] Pending security updates and reboot-required (apt, dnf, dnf5, yum, zypper; all pending updates for apk)
 - [x] Firewall status, SUID binaries, world-writable paths
 - [x] `~/.ssh/config` support (aliases, users, ports, keys, ProxyJump chains)
-- [x] HTML report for auditors (`-html`)
+- [x] HTML and PDF reports for auditors (`-html`, `-pdf`)
 - [ ] First tagged release, v0.1.0 (see CHANGELOG.md)
 - [x] Follow custom `AuthorizedKeysFile` and `AllowUsers`/`DenyUsers`/`AllowGroups`/`DenyGroups` in rootmap
 - [x] Flag limited sudo rules that allow shell escapes (GTFOBins)
@@ -357,6 +367,8 @@ UPD-004 knows Ubuntu, Debian (including its free LTS period) and Raspbian, RHEL,
 - [x] Ansible inventories (INI, and `ansible-inventory --list` JSON) with `-group`
 - [x] `nobet-web`: read-only team dashboard over a shared scan history
 - [x] `nobet-web`: built-in OIDC sign-in with a read-only role, and an audit log of who viewed what
+- [x] PDF reports (`-pdf`, and HTML/PDF downloads in the dashboard)
+- [x] Scans asked for from the dashboard, run by the scanner account through a queue
 
 ## Project layout
 

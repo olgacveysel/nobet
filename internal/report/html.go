@@ -25,7 +25,8 @@ var tmpl = template.Must(template.New("report").Funcs(template.FuncMap{
 	"sev":   func(s checks.Severity) string { return s.String() },
 }).Parse(htmlTemplate))
 
-// HTMLMeta is report-level information shown in the header.
+// HTMLMeta is report-level information shown in the header of the HTML
+// and PDF reports.
 type HTMLMeta struct {
 	Generated time.Time
 	Version   string
@@ -53,9 +54,16 @@ type htmlData struct {
 // HTML writes a self-contained report (no external files, scripts or
 // fonts) suitable for sharing with auditors or printing to PDF.
 func HTML(w io.Writer, results []scan.HostResult, meta HTMLMeta) error {
+	d := buildData(results, meta)
+	d.Logo = template.HTML(wordmarkSVG) // our own embedded asset
+	return tmpl.Execute(w, d)
+}
+
+// buildData prepares what both the HTML and the PDF report show: hosts
+// worst first, totals, and the root access map.
+func buildData(results []scan.HostResult, meta HTMLMeta) htmlData {
 	d := htmlData{
 		Meta:     meta,
-		Logo:     template.HTML(wordmarkSVG), // our own embedded asset
 		Totals:   map[string]int{},
 		Severity: []string{"critical", "high", "medium", "low", "info"},
 	}
@@ -98,5 +106,5 @@ func HTML(w io.Writer, results []scan.HostResult, meta HTMLMeta) error {
 			d.Root.SetOwners(meta.Owners.Path, meta.Owners.Owner)
 		}
 	}
-	return tmpl.Execute(w, d)
+	return d
 }

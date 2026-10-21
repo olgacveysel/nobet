@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/olgacveysel/nobet/internal/keys"
+	"github.com/olgacveysel/nobet/internal/report"
 	"github.com/olgacveysel/nobet/internal/rootmap"
 	"github.com/olgacveysel/nobet/internal/scan"
 )
@@ -41,6 +42,9 @@ type Options struct {
 	KeysFile   string        // names the owners of SSH keys on the root page; read on each view, "" for none
 	Metrics    bool          // serve /metrics in the Prometheus text format
 	Auth       *OIDCConfig   // built-in login; nil leaves access control to a reverse proxy
+	ScanQueue  string        // directory for scan requests that `nobet scan -queue` handles; "" turns "Scan now" off
+	ScanUsers  []string      // who may ask for scans; with ScanGroups empty too, everyone who may view
+	ScanGroups []string      // with built-in login: groups whose members may ask for scans
 	Audit      io.Writer     // JSON lines: every page view and sign-in, with the user; nil for none
 	Log        *log.Logger   // request log; nil for none
 	Now        func() time.Time
@@ -53,6 +57,7 @@ type Server struct {
 	auth  *auth // nil without built-in login
 
 	auditMu sync.Mutex
+	scanMu  sync.Mutex // one scan request at a time
 
 	mu  sync.Mutex
 	sig string
@@ -75,13 +80,17 @@ func New(opts Options) (*Server, error) {
 		if err != nil {
 			return nil, err
 		}
+		a.scanUsers, a.scanGroups = opts.ScanUsers, opts.ScanGroups
 		s.auth = a
+	} else if len(opts.ScanGroups) > 0 {
+		return nil, fmt.Errorf("scan groups need built-in sign-in, which knows users' groups")
 	}
 	funcs := template.FuncMap{
 		"ago":    func(t time.Time) string { return ago(opts.Now(), t) },
 		"when":   func(t time.Time) string { return t.UTC().Format("2006-01-02 15:04 UTC") },
 		"upper":  strings.ToUpper,
 		"routes": routeText,
+		"join":   strings.Join,
 	}
 	for _, name := range []string{"fleet", "host", "changes", "root", "message"} {
 		t, err := template.New("").Funcs(funcs).ParseFS(files, "templates/layout.tmpl", "templates/"+name+".tmpl")
@@ -102,9 +111,14 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /host/{name}", s.handleHost)
 	mux.HandleFunc("GET /changes", s.handleChanges)
 	mux.HandleFunc("GET /root", s.handleRoot)
+	mux.HandleFunc("GET /report.html", s.handleReport)
+	mux.HandleFunc("GET /report.pdf", s.handleReport)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) { fmt.Fprintln(w, "ok") })
 	if s.opts.Metrics {
 		mux.HandleFunc("GET /metrics", s.handleMetrics)
+	}
+	if s.opts.ScanQueue != "" {
+		mux.HandleFunc("POST /scan", s.handleScan)
 	}
 	if s.auth != nil {
 		mux.HandleFunc("GET /auth/login", s.handleLogin)
@@ -120,7 +134,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /favicon.ico", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/static/favicon.svg", http.StatusMovedPermanently)
 	})
-	return s.secure(s.logged(s.authorized(s.audited(mux))))
+	// The only unsafe method is POST /scan: refuse it from other sites
+	// (Sec-Fetch-Site and Origin checks), so no page elsewhere can make a
+	// signed-in browser ask for scans.
+	return s.secure(s.logged(s.authorized(s.audited(http.NewCrossOriginProtection().Handler(mux)))))
 }
 
 // page holds what every page shows.
@@ -131,10 +148,11 @@ type page struct {
 	LastScan time.Time
 	User     string // who is viewing, when known
 	SignOut  bool   // built-in login: offer to sign out
+	Scan     *scanBox
 }
 
 func (s *Server) page(r *http.Request, ix *index, title, nav string) page {
-	return page{Title: title, Nav: nav, Version: s.opts.Version, LastScan: ix.lastScan, User: s.viewer(r), SignOut: s.auth != nil}
+	return page{Title: title, Nav: nav, Version: s.opts.Version, LastScan: ix.lastScan, User: s.viewer(r), SignOut: s.auth != nil, Scan: s.scanBox(r)}
 }
 
 // load returns the index for the current history directory, rebuilding it
@@ -265,6 +283,9 @@ func (s *Server) handleHost(w http.ResponseWriter, r *http.Request) {
 		Row:        ix.row(name, s.opts.Now(), s.opts.StaleAfter),
 		Severities: severities,
 	}
+	if p.Scan != nil {
+		p.Scan.Host = name
+	}
 	if cur, ok := ix.current[name]; ok {
 		p.Scanned, p.ScanTime = true, cur.Time
 		active := cur.Active()
@@ -329,6 +350,45 @@ func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.render(w, http.StatusOK, "root", rootPage{page: s.page(r, ix, "Root access", "root"), Map: s.rootMap(ix), Empty: len(ix.hosts) == 0})
+}
+
+// handleReport serves the HTML or PDF report for every host's newest
+// successful scan, as a download: the HTML report carries its own styles,
+// which the dashboard's CSP would block if it were shown in place.
+func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
+	ix, ok := s.index(w, r)
+	if !ok {
+		return
+	}
+	var results []scan.HostResult
+	for _, h := range ix.hosts {
+		if cur, ok := ix.current[h]; ok {
+			results = append(results, cur.Result())
+		} else {
+			results = append(results, scan.HostResult{Host: h, Error: ix.latest[h].Error})
+		}
+	}
+	meta := report.HTMLMeta{Generated: s.opts.Now(), Version: s.opts.Version}
+	if s.opts.KeysFile != "" {
+		if owners, err := keys.Load(s.opts.KeysFile, true); err == nil {
+			meta.Owners = owners
+		}
+	}
+	write, ext, ctype := report.HTML, "html", "text/html; charset=utf-8"
+	if strings.HasSuffix(r.URL.Path, ".pdf") {
+		write, ext, ctype = report.PDF, "pdf", "application/pdf"
+	}
+	var buf bytes.Buffer
+	if err := write(&buf, results, meta); err != nil {
+		if s.opts.Log != nil {
+			s.opts.Log.Printf("building the %s report: %v", ext, err)
+		}
+		http.Error(w, "could not build the report", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", ctype)
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="nobet-report-%s.%s"`, meta.Generated.UTC().Format("2006-01-02"), ext))
+	w.Write(buf.Bytes())
 }
 
 // rootMap builds the access map with key owners from the keys file, which

@@ -53,7 +53,7 @@ func logURI(r *http.Request) string {
 // auditEvent is one line of the audit log.
 type auditEvent struct {
 	Time   string `json:"time"`
-	Event  string `json:"event"` // view, login, logout, denied, login_failed
+	Event  string `json:"event"` // view, login, logout, denied, login_failed, scan_requested, scan_denied
 	User   string `json:"user,omitempty"`
 	Method string `json:"method,omitempty"`
 	Path   string `json:"path"`
@@ -87,7 +87,8 @@ func (s *Server) audited(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		sw := &statusWriter{ResponseWriter: w, status: http.StatusOK}
 		next.ServeHTTP(sw, r)
-		if !public(r.URL.Path) {
+		// Scan requests (POST) record their own events.
+		if !public(r.URL.Path) && (r.Method == http.MethodGet || r.Method == http.MethodHead) {
 			s.audit("view", s.viewer(r), r, sw.status, "")
 		}
 	})

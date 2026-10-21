@@ -30,6 +30,17 @@
 </html>
 {{end}}
 
+{{define "scanbox"}}{{with .Scan}}
+<div class="scanbox">
+  {{if .Error}}<p class="muted">Scan requests unavailable: {{.Error}}</p>
+  {{else if .Pending}}{{with index .Pending 0}}<p class="pending">{{if eq .State "running"}}Scanning now{{else}}Scan queued, waiting for the scanner{{end}}{{if .Hosts}} ({{join .Hosts ", "}}){{end}}: asked by {{or .User "a dashboard user"}} <span title="{{when .Time}}">{{ago .Time}}</span>. Reload to see the results.</p>{{end}}
+  {{else}}
+    {{with .Last}}<p class="muted">Last scan asked for here: by {{or .User "a dashboard user"}}{{if .Hosts}} ({{join .Hosts ", "}}){{end}}, {{if .Error}}not done: {{.Error}}{{else}}finished <span title="{{when .Finished}}">{{ago .Finished}}</span>, {{len .Scanned}} host(s){{if .Unreachable}}, {{len .Unreachable}} unreachable{{end}}{{if .Ignored}}; not in the scanner's inventory: {{join .Ignored ", "}}{{end}}{{end}}.</p>{{end}}
+    {{if .Allowed}}<form method="post" action="/scan">{{if .Host}}<input type="hidden" name="host" value="{{.Host}}">{{end}}<button type="submit">{{if .Host}}Rescan this host{{else}}Scan all hosts now{{end}}</button></form>{{end}}
+  {{end}}
+</div>
+{{end}}{{end}}
+
 {{define "changegroups"}}
 {{if not .}}<p class="muted">No changes recorded.</p>{{end}}
 {{range .}}

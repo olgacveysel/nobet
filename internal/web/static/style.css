@@ -105,3 +105,12 @@ section.key table { margin-top: 8px; }
   h1 { font-size: 20px; }
 }
 .unclaimed { color: var(--amber); font-weight: 600; }
+.page-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.page-head .downloads { color: var(--muted); font-size: 14px; margin: 0; }
+.scanbox { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+           background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; margin: 0 0 16px; }
+.scanbox p { margin: 0; font-size: 14px; }
+.scanbox .pending { color: var(--amber); font-weight: 600; }
+.scanbox form { margin: 0 0 0 auto; }
+.scanbox button { font: inherit; font-size: 14px; font-weight: 600; color: #0B1426; background: #F2A93B; border: 0; border-radius: 8px; padding: 7px 14px; cursor: pointer; }
+.scanbox button:hover { background: #D9890F; color: #fff; }

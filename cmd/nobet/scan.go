@@ -4,13 +4,16 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/olgacveysel/nobet/internal/allow"
 	"github.com/olgacveysel/nobet/internal/checks"
 	"github.com/olgacveysel/nobet/internal/drift"
 	"github.com/olgacveysel/nobet/internal/keys"
+	"github.com/olgacveysel/nobet/internal/queue"
 	"github.com/olgacveysel/nobet/internal/report"
 	"github.com/olgacveysel/nobet/internal/scan"
 	"github.com/olgacveysel/nobet/internal/store"
@@ -30,6 +33,8 @@ func runScan(args []string) int {
 	noSave := fs.Bool("no-save", false, "do not save this scan to the history used by 'nobet diff'")
 	histDir := addHistoryFlag(fs)
 	htmlPath := fs.String("html", "", "also write a self-contained HTML report (findings and root access map) to this file")
+	pdfPath := fs.String("pdf", "", "also write the report as a PDF to this file")
+	queueDir := fs.String("queue", "", "scan only what nobet-web users asked for in this queue directory, and only hosts from this command's own targets; does nothing when no request waits")
 	keysPath := addKeysFlag(fs)
 	onChange := fs.String("on-change", "", "run this shell command when the scan finds changes since the previous one, with them as JSON on stdin (as 'nobet diff -json') and the counts in $NOBET_CHANGES and $NOBET_CHANGED_HOSTS")
 	fs.BoolVar(jsonOut, "j", false, "shorthand for -json")
@@ -56,6 +61,39 @@ func runScan(args []string) int {
 	if !t.resolve(fs) {
 		return exitUsage
 	}
+	if *queueDir != "" && *noSave {
+		fmt.Fprintln(os.Stderr, "nobet: -queue records results in the scan history, so it cannot be used with -no-save")
+		return exitUsage
+	}
+	var claimed []queue.Request
+	var ignored []string
+	if *queueDir != "" {
+		if err := queue.Recover(*queueDir, time.Hour, time.Now()); err != nil {
+			fmt.Fprintln(os.Stderr, "nobet: scan queue:", err)
+			return exitUsage
+		}
+		var err error
+		if claimed, err = queue.Claim(*queueDir); err != nil {
+			fmt.Fprintln(os.Stderr, "nobet: scan queue:", err)
+			return exitUsage
+		}
+		if len(claimed) == 0 {
+			return exitOK // nothing asked for
+		}
+		if hosts := queue.Hosts(claimed); hosts != nil {
+			ignored = t.only(hosts)
+		}
+		for _, r := range claimed {
+			fmt.Fprintf(os.Stderr, "nobet: scan requested by %s at %s\n", orAnyone(r.User), r.Time.Local().Format("15:04"))
+		}
+		if len(ignored) > 0 {
+			fmt.Fprintf(os.Stderr, "nobet: not in this scan's targets, so not scanned: %s\n", strings.Join(ignored, ", "))
+		}
+		if !t.doLocal && len(t.hosts) == 0 {
+			finishQueue(*queueDir, claimed, nil, ignored, time.Now(), "none of the requested hosts are in the scanner's inventory")
+			return exitOK
+		}
+	}
 	if *onChange != "" && *noSave {
 		fmt.Fprintln(os.Stderr, "nobet: -on-change compares with the saved history, so it cannot be used with -no-save")
 		return exitUsage
@@ -74,7 +112,7 @@ func runScan(args []string) int {
 	started := time.Now()
 
 	var results []scan.HostResult
-	tuiMode := !*jsonOut && !*plain && isTerminal(os.Stdout) && isTerminal(os.Stdin)
+	tuiMode := !*jsonOut && !*plain && *queueDir == "" && isTerminal(os.Stdout) && isTerminal(os.Stdin)
 	if tuiMode {
 		names := t.names()
 		results, err = tui.Run(names, owners, func(report func(int, scan.HostResult)) {
@@ -107,10 +145,17 @@ func runScan(args []string) int {
 	}
 
 	if *htmlPath != "" {
-		if err := writeHTML(*htmlPath, results, started, owners); err != nil {
+		if err := writeReport(*htmlPath, report.HTML, results, started, owners); err != nil {
 			fmt.Fprintln(os.Stderr, "nobet: writing HTML report:", err)
 		} else if !*jsonOut {
 			fmt.Printf("HTML report written to %s\n", *htmlPath)
+		}
+	}
+	if *pdfPath != "" {
+		if err := writeReport(*pdfPath, report.PDF, results, started, owners); err != nil {
+			fmt.Fprintln(os.Stderr, "nobet: writing PDF report:", err)
+		} else if !*jsonOut {
+			fmt.Printf("PDF report written to %s\n", *pdfPath)
 		}
 	}
 
@@ -122,17 +167,57 @@ func runScan(args []string) int {
 		}
 		saveAndSummarize(out, *histDir, results, started, *onChange)
 	}
+	if len(claimed) > 0 {
+		finishQueue(*queueDir, claimed, results, ignored, started, "")
+	}
 	return exitCode(results, threshold)
 }
 
-// writeHTML writes the HTML report. The file is 0600 because it lists
-// security weaknesses and access paths.
-func writeHTML(p string, results []scan.HostResult, at time.Time, owners *keys.Owners) error {
+// finishQueue records the outcome of the requests a -queue scan handled.
+func finishQueue(dir string, claimed []queue.Request, results []scan.HostResult, ignored []string, started time.Time, errMsg string) {
+	var done []queue.Done
+	for _, r := range claimed {
+		want := map[string]bool{}
+		for _, h := range r.Hosts {
+			want[h] = true
+		}
+		d := queue.Done{Request: r, Started: started.UTC(), Finished: time.Now().UTC(), Error: errMsg}
+		for _, res := range results {
+			if len(r.Hosts) > 0 && !want[res.Host] {
+				continue
+			}
+			d.Scanned = append(d.Scanned, res.Host)
+			if res.Error != "" {
+				d.Unreachable = append(d.Unreachable, res.Host)
+			}
+		}
+		for _, h := range ignored {
+			if want[h] {
+				d.Ignored = append(d.Ignored, h)
+			}
+		}
+		done = append(done, d)
+	}
+	if err := queue.Finish(dir, done); err != nil {
+		fmt.Fprintln(os.Stderr, "nobet: scan queue:", err)
+	}
+}
+
+func orAnyone(user string) string {
+	if user == "" {
+		return "a dashboard user"
+	}
+	return user
+}
+
+// writeReport writes an HTML or PDF report. The file is 0600 because it
+// lists security weaknesses and access paths.
+func writeReport(p string, write func(io.Writer, []scan.HostResult, report.HTMLMeta) error, results []scan.HostResult, at time.Time, owners *keys.Owners) error {
 	f, err := os.OpenFile(p, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err != nil {
 		return err
 	}
-	if err := report.HTML(f, results, report.HTMLMeta{Generated: at, Version: version, Owners: owners}); err != nil {
+	if err := write(f, results, report.HTMLMeta{Generated: at, Version: version, Owners: owners}); err != nil {
 		f.Close()
 		return err
 	}

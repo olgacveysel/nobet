@@ -38,6 +38,9 @@ NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes
 InaccessiblePaths=-/var/lib/nobet/.ssh
+# With -scan-queue /var/lib/nobet/queue it may write scan requests there
+# (nothing else); nobet-scan-queue.path picks them up.
+ReadWritePaths=-/var/lib/nobet/queue
 PrivateTmp=yes
 PrivateDevices=yes
 ProtectKernelTunables=yes

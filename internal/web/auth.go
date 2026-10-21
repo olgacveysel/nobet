@@ -48,6 +48,8 @@ type auth struct {
 	verifier *oidc.IDTokenVerifier
 	secure   bool // cookies only over HTTPS
 	client   *http.Client
+
+	scanUsers, scanGroups []string // who may ask for scans; both empty: everyone who may sign in
 }
 
 // newAuth reads the provider's configuration. It fails when the provider
@@ -104,6 +106,7 @@ func newAuth(ctx context.Context, cfg OIDCConfig) (*auth, error) {
 type session struct {
 	User    string `json:"u"`
 	Expires int64  `json:"e"`
+	Scan    bool   `json:"s,omitempty"` // may ask for scans (decided at sign-in, from the scan users and groups)
 }
 
 // pending is what the login cookie holds while the user is at the provider.
@@ -171,11 +174,16 @@ func (a *auth) read(r *http.Request, base string, v any) bool {
 
 // user returns the signed-in user, or "".
 func (a *auth) user(r *http.Request, now time.Time) string {
+	return a.session(r, now).User
+}
+
+// session returns the signed-in session, or the zero session.
+func (a *auth) session(r *http.Request, now time.Time) session {
 	var s session
 	if !a.read(r, "nobet_session", &s) || now.Unix() >= s.Expires || s.User == "" {
-		return ""
+		return session{}
 	}
-	return s.User
+	return s
 }
 
 func randomString() string {
@@ -240,7 +248,8 @@ func (a *auth) callback(w http.ResponseWriter, r *http.Request, now time.Time) (
 	if !a.allowed(idt.Subject, claims) {
 		return user, "", errDenied
 	}
-	a.setCookie(w, "nobet_session", session{User: user, Expires: now.Add(a.cfg.SessionTTL).Unix()}, a.cfg.SessionTTL)
+	mayScan := len(a.scanUsers) == 0 && len(a.scanGroups) == 0 || a.inList(a.scanUsers, a.scanGroups, idt.Subject, claims)
+	a.setCookie(w, "nobet_session", session{User: user, Expires: now.Add(a.cfg.SessionTTL).Unix(), Scan: mayScan}, a.cfg.SessionTTL)
 	return user, p.Return, nil
 }
 
@@ -256,9 +265,12 @@ func identity(sub string, claims map[string]any) string {
 }
 
 func (a *auth) allowed(sub string, claims map[string]any) bool {
-	if a.cfg.AnyUser {
-		return true
-	}
+	return a.cfg.AnyUser || a.inList(a.cfg.Users, a.cfg.Groups, sub, claims)
+}
+
+// inList reports whether the user is one of users (by subject, verified
+// email or preferred_username, case-insensitive) or in one of groups.
+func (a *auth) inList(users, wantGroups []string, sub string, claims map[string]any) bool {
 	names := []string{sub}
 	for _, k := range []string{"email", "preferred_username"} {
 		if v, ok := claims[k].(string); ok && v != "" {
@@ -268,7 +280,7 @@ func (a *auth) allowed(sub string, claims map[string]any) bool {
 			names = append(names, v)
 		}
 	}
-	for _, u := range a.cfg.Users {
+	for _, u := range users {
 		for _, n := range names {
 			if strings.EqualFold(u, n) {
 				return true
@@ -286,7 +298,7 @@ func (a *auth) allowed(sub string, claims map[string]any) bool {
 	case string:
 		groups = []string{g}
 	}
-	for _, want := range a.cfg.Groups {
+	for _, want := range wantGroups {
 		for _, g := range groups {
 			if g == want {
 				return true

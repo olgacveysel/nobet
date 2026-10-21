@@ -33,6 +33,7 @@ services:
       NOBET_INTERVAL: 24h
     volumes:
       - nobet-data:/var/lib/nobet
+      - nobet-queue:/var/lib/nobet-queue
       # hosts, known_hosts, and optionally allowlist, ssh_config and an
       # executable on-change hook (contrib/hooks/slack works here)
       - ./config:/etc/nobet:ro
@@ -53,10 +54,14 @@ services:
     depends_on: [scanner]
     # To log who viewed what behind your proxy, add the header it sets:
     # command: ["-listen", ":8080", "-user-header", "X-Forwarded-User"]
+    # To let users ask for scans ("Scan now"), which the scanner container
+    # runs within 30 seconds, add "-scan-queue", "/var/lib/nobet-queue".
     ports:
       - "127.0.0.1:8080:8080"
     volumes:
       - nobet-data:/var/lib/nobet:ro
+      # Only scan requests are written here; the scanner reads them.
+      - nobet-queue:/var/lib/nobet-queue
     read_only: true
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
@@ -67,3 +72,4 @@ secrets:
 
 volumes:
   nobet-data:
+  nobet-queue:

@@ -1,0 +1,39 @@
+# Runs the scans that nobet-web users asked for (see nobet-scan-queue.path):
+# the same scan as nobet-scan.service, limited to the requested hosts from
+# /etc/nobet/hosts. Exits at once when no request waits.
+[Unit]
+Description=nöbet scan asked for from the dashboard
+Documentation=https://github.com/olgacveysel/nobet
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=nobet
+Group=nobet
+Environment=NOBET_DATA_DIR=/var/lib/nobet
+ExecStart=/usr/bin/nobet scan -plain -i /etc/nobet/hosts -allow /etc/nobet/allowlist -queue /var/lib/nobet/queue
+# 1 means findings were reported and 3 that some hosts were unreachable:
+# the scan itself worked and was saved.
+SuccessExitStatus=1 3
+# Group-readable results for nobet-web (the scans directory is 2750).
+UMask=0027
+
+# Hardening: nobet only reads its key and known_hosts, and writes scans.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/nobet/scans /var/lib/nobet/queue
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictRealtime=yes
+SystemCallArchitectures=native
+CapabilityBoundingSet=

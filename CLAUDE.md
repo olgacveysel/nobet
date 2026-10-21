@@ -27,13 +27,14 @@ internal/checks/    Check{ID, Title, Run(facts) (findings, skip)}; registry in c
 internal/scan/      HostResult (Facts kept, json:"-") and Evaluate(facts -> findings)
 internal/allow/     allowlist (check-id host-glob [match] # reason)
 internal/keys/      keys file: who owns which SSH key (owner fingerprint-or-pubkey # note), for rootmap names and -who
+internal/queue/     scan requests from nobet-web (<id>.json -> .running -> .done) for `nobet scan -queue`
 internal/store/     scan history in ~/.local/share/nobet/scans or $NOBET_DATA_DIR/scans (0700/0600; 0640 in a group-readable dir; keep 100)
 internal/drift/     changes between two snapshots of a host
 internal/rootmap/   fleet-wide "who can become root where", grouped by SSH key
-internal/report/    text, JSON, HTML (embedded template + logo in assets/)
+internal/report/    text, JSON, HTML (embedded template + logo in assets/), PDF (gopdf + Go fonts; pdf.go)
 internal/tui/       Bubble Tea UI; `r` toggles root access view
 internal/web/       nobet-web: history index, pages (embedded templates/ and static/); auth.go (OIDC sign-in, signed cookies), access.go (login gate, audit log)
-contrib/systemd/    nobet-scan.service/.timer and nobet-web.service (hardened)
+contrib/systemd/    nobet-scan.service/.timer, nobet-scan-queue.service/.path (dashboard requests) and nobet-web.service (hardened)
 contrib/docker/     nobet-scan-loop: the scanner image's entrypoint (adds -on-change for an executable config/on-change)
 contrib/hooks/      -on-change examples (slack: curl or busybox wget, no jq, so it runs in the scanner image)
 Dockerfile          one build, two targets: scanner (alpine) and web (distroless), uid 65532
@@ -53,6 +54,7 @@ docs/logo/          SVG logos, favicon
 - **Never collect secrets.** The shadow collector prints only set/empty/locked; a test asserts no `$` reaches the output. Script contents never leave the host either: what a script runs or sources is extracted there by awk (pathsScript) and only paths come back. Anything put into a generated script must be validated first (see `safeUser`, `safePath`).
 - **Privilege gating.** Data that is only complete as root (other users' keys, sudo rights, firewall, SUID/world-writable) is skipped entirely without privilege rather than collected partially.
 - **Drift compares like with like.** Root/key changes only when both scans were privileged.
+- **PDF reports** use signintech/gopdf with the Go fonts (golang.org/x/image/font/gofont), so nothing is fetched or installed; text the fonts cannot draw becomes "?" (`clean`). Check layout changes by rendering pages (pdftoppm) and looking at them.
 - **Keep the history small.** Snapshots store Facts, so bulky raw listings stay out of JSON (`json:"-"`) and only their result is kept: `RootJobs`/`Paths`/`Links` (hundreds of entries per host) are dropped, `RootWritable` (usually empty) is stored.
 - **systemd Exec flags.** Root services: every `Exec*` command. Services with `User=`: only commands whose `Exec*Ex` property has `flags=privileged` (`+`) or `no-setuid` (`!`); checked on systemd 255.
 - **Who can change a file** (`Facts.Writers`): its owner, its group's members and everyone if writable, and the same for every directory above it; a sticky directory protects existing entries; a symlink's own mode means nothing, and a path through a symlinked directory (`/sbin -> usr/sbin`) is resolved. Check new path logic against merged-/usr distros and Alpine (`/var/spool/cron/crontabs` is a symlink there).
@@ -76,7 +78,8 @@ Decided by the maintainer on 2026-10-14:
 - **Read-only over scan history.** It never scans and never holds SSH credentials. Scans come from `nobet scan` under a service account (systemd timer) writing to a shared history (`/var/lib/nobet/scans`). If on-demand scans are ever needed, the web process only queues a request and a separate worker running the CLI under the service account does the scan; the web process still never touches a key.
 - **For teams, with access control from day one.** v1: localhost only by default, behind the team's authenticating reverse proxy. v2 (built 2026-10-20): built-in OIDC login with a read-only role and an audit log of who viewed what.
 - **Sign-in details** (keep these): go-oidc verifies ID tokens (no hand-written JWT code); authorization code flow with PKCE (S256), state and nonce, all held in a short-lived signed cookie, so the server keeps no session store; session cookie HMAC-SHA256 signed, HttpOnly, SameSite=Lax, `__Host-` over HTTPS; nobody may sign in unless `-allow-users`/`-allow-groups`/`-allow-any-user` says so; an unverified email never matches; return paths are local only (`safeReturn`); the callback's code and state never reach a log. Secrets come from files, never flags. Tested against a fake provider (auth_test.go) and against Dex.
-- No JavaScript, strict CSP (no inline styles either), pages `no-store`, GET/HEAD only.
+- No JavaScript, strict CSP (no inline styles either), pages `no-store`, GET/HEAD only, except `POST /scan` when `-scan-queue` is set (2026-10-21, as planned above): it only writes a request file, sits behind `http.CrossOriginProtection`, allows one waiting request, and is audited. The web process gets write access to the queue directory and nothing else.
+- Reports: `/report.html` and `/report.pdf` are downloads (Content-Disposition attachment), because the HTML report's inline styles would break the dashboard's CSP if shown in place.
 - `/metrics` (Prometheus text format, hand-written, no client library) is opt-in with `-metrics`; it shows counts and times, never finding details. Check changes with `promtool check metrics`.
 
 ## Release
