@@ -5,7 +5,8 @@
 - `nobet report -pdf FILE` (and/or `-html FILE`): the reports from the saved history, without scanning, from each host's newest successful scan; `-host` narrows it. For a weekly report from cron.
 - `nobet diff -since 7d` (`2w`, `36h`): what changed since each host's newest scan from before then, rather than since the previous scan.
 - nobet-web: "Findings by check" on the fleet page, and a page per check (`/check/SSH-001`) with every host it fires on, where it is allowlisted and why, and where it could not run; check IDs on host pages link to it.
-- Release workflow: builds the tag it was started for even when two tags share a commit (v0.1.0-rc1 and v0.1.0 did, and the first v0.1.0 run picked rc1), and can rebuild an existing tag's release by hand (`gh workflow run release -f tag=vX.Y.Z`). Such runs are signed as `release.yml@refs/heads/master`; the verify commands in the README accept both.
+- Binaries built with `go install …@v0.1.0` report their version (`nobet 0.1.0`) instead of `dev`.
+- Release workflow: builds the tag it was started for even when two tags share a commit (v0.1.0-rc1 and v0.1.0 did, and the first v0.1.0 run picked rc1), and can rebuild an existing tag's release by hand (`gh workflow run release -f tag=vX.Y.Z`). Such runs are signed as `release.yml@refs/heads/master`; the verify commands in the README accept both. A run for a tag that is already released stops at the start instead of failing after the build.
 
 ## v0.1.0 — 2026-10-21
 

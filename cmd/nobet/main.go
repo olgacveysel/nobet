@@ -7,9 +7,11 @@ import (
 	"os"
 
 	"github.com/olgacveysel/nobet/internal/brand"
+	"github.com/olgacveysel/nobet/internal/buildinfo"
 )
 
-// version is set at build time with -ldflags "-X main.version=v0.1.0".
+// version is set at build time with -ldflags "-X main.version=0.1.0";
+// main falls back to the module version (go install).
 var version = "dev"
 
 // Exit codes, shared by all commands.
@@ -35,7 +37,10 @@ Commands:
 Run "nobet help <command>" or "nobet <command> -h" for details.
 `
 
-func main() { os.Exit(run(os.Args[1:])) }
+func main() {
+	version = buildinfo.Version(version)
+	os.Exit(run(os.Args[1:]))
+}
 
 func run(args []string) int {
 	if len(args) == 0 {

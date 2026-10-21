@@ -22,15 +22,20 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/olgacveysel/nobet/internal/buildinfo"
 	"github.com/olgacveysel/nobet/internal/keys"
 	"github.com/olgacveysel/nobet/internal/store"
 	"github.com/olgacveysel/nobet/internal/web"
 )
 
-// version is set at build time with -ldflags "-X main.version=v0.1.0".
+// version is set at build time with -ldflags "-X main.version=0.1.0";
+// main falls back to the module version (go install).
 var version = "dev"
 
-func main() { os.Exit(run(os.Args[1:])) }
+func main() {
+	version = buildinfo.Version(version)
+	os.Exit(run(os.Args[1:]))
+}
 
 func run(args []string) int {
 	fs := flag.NewFlagSet("nobet-web", flag.ContinueOnError)

@@ -40,6 +40,7 @@ contrib/hooks/      -on-change examples (slack: curl or busybox wget, no jq, so 
 Dockerfile          one build, two targets: scanner (alpine) and web (distroless), uid 65532
 compose.yaml        scanner (holds the key, writes the volume) + web (volume read-only, 127.0.0.1 only)
 internal/brand/     half-block terminal logo (owl on the ö)
+internal/buildinfo/ the binaries' version: -ldflags main.version, else the module version (go install @vX.Y.Z)
 docs/logo/          SVG logos, favicon
 ```
 
@@ -86,7 +87,7 @@ Decided by the maintainer on 2026-10-14:
 
 - Module `github.com/olgacveysel/nobet`; `.goreleaser.yaml` has homepage and maintainer (Veysel <olgacveysel@gmail.com>). `goreleaser check` and a snapshot release pass.
 - Repo github.com/olgacveysel/nobet, default branch `master`. CI runs on pushes to `master`, pull requests and manual dispatch (`gh workflow run ci`); every push to `master` also uploads test packages (the `packages` artifact, kept 14 days).
-- The release workflow passes `GORELEASER_CURRENT_TAG`: on 2026-10-21 v0.1.0-rc1 and v0.1.0 were pushed on one commit, and goreleaser picked rc1 for both (the v0.1.0 run then failed uploading duplicates). To rebuild a tag's release without moving the tag (never move a pushed tag: the Go module proxy and sum.golang.org may have recorded it), run `gh workflow run release -f tag=vX.Y.Z`; such runs are signed as `release.yml@refs/heads/master`, which the README's verify commands accept.
+- The release workflow passes `GORELEASER_CURRENT_TAG`: on 2026-10-21 v0.1.0-rc1 and v0.1.0 were pushed on one commit, and goreleaser picked rc1 for both (the v0.1.0 run then failed uploading duplicates). To rebuild a tag's release without moving the tag (never move a pushed tag: the Go module proxy and sum.golang.org may have recorded it), run `gh workflow run release -f tag=vX.Y.Z`; such runs are signed as `release.yml@refs/heads/master`, which the README's verify commands accept. A run for a tag whose release already has files stops at once (a second v0.1.0 run on 2026-10-21 failed after building, uploading nothing); to rebuild one, `gh release delete vX.Y.Z` first (keeps the tag).
 - The GitHub release body is the version's CHANGELOG.md section (release.yml extracts `## vX.Y.Z`; `-rcN` tags use the same section), so write the notes there. Changes after a release go under `## Unreleased`, renamed to `## vX.Y.Z — date` when releasing.
 - To release: refresh the OS support dates (`go generate ./internal/checks`, which rewrites `eol_data.go` from endoflife.date; review the diff), date the CHANGELOG entry, then `git tag -a vX.Y.Z -m vX.Y.Z && git push origin vX.Y.Z`; the release workflow does the rest. A tag with a suffix (`-rc1`) becomes a pre-release.
 - Pre-release tags have no dot: `v0.1.0-rc1`, `v0.2.0-beta1`. Packages become `0.1.0~rc1` (deb, rpm) and `0.1.0_rc1` (apk), which sort before `0.1.0` and upgrade cleanly. With a dot (`-rc.1`) the apk version `0.1.0_rc.1` is invalid for apk (checked 2026-10-21; the beta.1/beta.3 apks have that problem, and `apk add` of a newer file still replaces them). GitHub shows the `~` as `.` in asset names.
@@ -96,7 +97,7 @@ Decided by the maintainer on 2026-10-14:
 
 ## Roadmap (next)
 
-- v0.1.0: real-server testing passed (2026-10-21, maintainer). v0.1.0-rc1 released 2026-10-21 (28 assets, images 0.1.0-rc1). The v0.1.0 tag is on the same commit (89207a1); its first release run failed (goreleaser picked rc1). Next: push the fixed release.yml, `gh workflow run release -f tag=v0.1.0`, then check the release body, assets, and the 0.1.0/0.1/latest images (cosign verify). v0.1.0-beta.3 (2026-10-20) went through the whole release workflow: signed checksums, SBOMs, and signed public multi-arch images on GHCR (cosign verify passes). beta.2 failed at setup (cosign-installer has no floating v4 tag; pinned to v4.1.2).
+- v0.1.0 released 2026-10-21 from 89207a1 (after real-server testing by the maintainer), rebuilt by `gh workflow run release -f tag=v0.1.0` after the tag-push run picked rc1. Checked: release body = CHANGELOG section, 28 assets, checksums signed (`release.yml@refs/heads/master`), images 0.1.0 = 0.1 = latest, multi-arch, cosign verified, revision label = tag commit. v0.1.0-beta.3 (2026-10-20) went through the whole release workflow: signed checksums, SBOMs, and signed public multi-arch images on GHCR (cosign verify passes). beta.2 failed at setup (cosign-installer has no floating v4 tag; pinned to v4.1.2).
 - Candidates: CIS Benchmark IDs in the HTML report (only with a verified mapping)
 - KRN-001 only checks sysctls whose defaults are safe everywhere (verified from the distributions' sysctl.d files on 2026-10-21; ptrace_scope, kptr_restrict and dmesg_restrict differ, e.g. RHEL ships ptrace_scope 0). Widen it only after checking real servers.
 - "Accounts with keys unused for months" needs real servers (login records: lastlog is going away, wtmp rotates); do it with real-server testing
