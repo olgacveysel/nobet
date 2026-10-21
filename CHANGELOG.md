@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- ACC-006: authorized SSH keys that have not logged in for 90 days, from sshd's "Accepted publickey" messages in the journal and the syslog files (rotated and gzipped ones too); Medium when the key reaches an account that can become root. Only journal entries from root's sshd are trusted, so no local account can make a key look used there. When the logs do not reach back 90 days, the check says how far they go instead of guessing.
+- The root access map (text, TUI, HTML, PDF and the dashboard) shows when each key last logged in as each account.
+- FS-003 no longer reports masked systemd services: their unit file is a link to /dev/null, which anyone can write to, but systemd never starts them.
 - `nobet report -pdf FILE` (and/or `-html FILE`): the reports from the saved history, without scanning, from each host's newest successful scan; `-host` narrows it. For a weekly report from cron.
 - `nobet diff -since 7d` (`2w`, `36h`): what changed since each host's newest scan from before then, rather than since the previous scan.
 - nobet-web: "Findings by check" on the fleet page, and a page per check (`/check/SSH-001`) with every host it fires on, where it is allowlisted and why, and where it could not run; check IDs on host pages link to it.

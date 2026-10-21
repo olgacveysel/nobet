@@ -138,7 +138,7 @@ if [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1; then
   echo "@@systemd"
   # The Ex properties (systemd 243+) carry the + and ! flags: those
   # commands run as root even in a service that runs as another user.
-  systemctl show --all --no-pager -p Id -p User -p DynamicUser -p FragmentPath -p DropInPaths \
+  systemctl show --all --no-pager -p Id -p LoadState -p User -p DynamicUser -p FragmentPath -p DropInPaths \
     -p ExecStart -p ExecStartPre -p ExecStartPost -p ExecReload -p ExecStop -p ExecStopPost \
     -p ExecStartEx -p ExecStartPreEx -p ExecStartPostEx -p ExecReloadEx -p ExecStopEx -p ExecStopPostEx '*.service' || echo "@@failed"
 fi
@@ -278,14 +278,15 @@ func envAssignment(l string) (name, val string, ok bool) {
 
 // systemdJobs reads `systemctl show` output: one block of properties per
 // service, separated by blank lines. Services that run as another user
-// are left out.
+// are left out, and so are masked ones: systemd never starts them, and
+// their unit file is a link to /dev/null, which anyone can write to.
 func systemdJobs(lines []string) []RootJob {
 	var jobs []RootJob
 	props := map[string][]string{}
 	flush := func() {
 		defer func() { props = map[string][]string{} }()
 		id := first(props["Id"])
-		if id == "" {
+		if id == "" || first(props["LoadState"]) == "masked" {
 			return
 		}
 		if u := first(props["User"]); u != "" && u != "root" && u != "0" || first(props["DynamicUser"]) == "yes" {

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/olgacveysel/nobet/internal/collect"
 )
@@ -226,6 +227,101 @@ var emptyPasswords = Check{
 				Detail:   summarize(others, 6) + "; any local user can su to them",
 				Fix:      fix,
 			})
+		}
+		return out, ""
+	},
+}
+
+// keyUnusedDays is how long an authorized key may go without logging in
+// before ACC-006 reports it.
+const keyUnusedDays = 90
+
+var unusedKeys = Check{
+	ID:    "ACC-006",
+	Title: "SSH keys that have not logged in for 90 days",
+	Run: func(f *collect.Facts) ([]Finding, string) {
+		if f.AuthKeys == nil {
+			return nil, unavailable(f, "authkeys", "authorized keys")
+		}
+		kl := f.KeyLogins
+		if kl == nil {
+			return nil, unavailable(f, "keylogins", "sshd's log messages")
+		}
+		switch lv := collect.SSHDFirst(f.SSHD, "loglevel"); lv {
+		case "quiet", "fatal", "error":
+			return nil, "sshd's LogLevel " + strings.ToUpper(lv) + " does not log logins"
+		}
+		if h := collect.SSHDFirst(f.SSHD, "fingerprinthash"); h != "" && h != "sha256" {
+			return nil, "sshd logs key fingerprints as " + strings.ToUpper(h) + ", which cannot be matched to the keys"
+		}
+
+		// One finding per key line in a file. The line is used when any
+		// account that reads the file logged in with the key: sshd reads
+		// /root/.ssh/authorized_keys for every account whose home is /root.
+		type line struct{ file, fp string }
+		var order []line
+		readers := map[line][]collect.AuthKey{}
+		for _, ak := range f.AuthKeys {
+			l := line{ak.File, ak.Fingerprint}
+			if readers[l] == nil {
+				order = append(order, l)
+			}
+			readers[l] = append(readers[l], ak)
+		}
+		cutoff := kl.Checked.AddDate(0, 0, -keyUnusedDays)
+		covered := !kl.Since.IsZero() && !kl.Since.After(cutoff)
+		var out []Finding
+		undecided := 0
+		for _, l := range order {
+			var accounts []string // the ones sshd lets in with the key
+			var last time.Time
+			rootCapable := false
+			for _, ak := range readers[l] {
+				if _, ok := f.KeyLogin(ak.User); !ok || contains(accounts, ak.User) {
+					continue
+				}
+				accounts = append(accounts, ak.User)
+				rootCapable = rootCapable || canBecomeRoot(f, ak.User)
+				if t, ok := kl.LastLogin(ak.User, l.fp); ok && t.After(last) {
+					last = t
+				}
+			}
+			if len(accounts) == 0 || last.After(cutoff) {
+				continue
+			}
+			if !covered {
+				undecided++
+				continue
+			}
+			ak := readers[l][0]
+			detail := l.fp + " " + strings.TrimPrefix(ak.Type, "ssh-")
+			if ak.Comment != "" {
+				detail += " " + ak.Comment
+			}
+			detail += " in " + l.file + "; "
+			if last.IsZero() {
+				detail += "no login since " + kl.Since.Format("2006-01-02") + ", as far back as the logs go"
+			} else {
+				detail += fmt.Sprintf("last login %s, %d days ago", last.Format("2006-01-02"), int(kl.Checked.Sub(last).Hours()/24))
+			}
+			sev := Low
+			if rootCapable {
+				sev = Medium
+			}
+			out = append(out, Finding{
+				CheckID:  "ACC-006",
+				Severity: sev,
+				Title:    fmt.Sprintf("SSH key for %s has not logged in for %d days", strings.Join(accounts, ", "), keyUnusedDays),
+				Detail:   detail,
+				Fix:      "If nobody needs the key any more, remove it from " + l.file + "; allowlist keys kept for emergencies by their fingerprint",
+			})
+		}
+		if undecided > 0 {
+			if kl.Since.IsZero() {
+				return nil, fmt.Sprintf("%d key(s) have no login in sshd's log messages, and none were found (journal, /var/log/auth.log, secure, messages)", undecided)
+			}
+			return nil, fmt.Sprintf("%d key(s) have not logged in since the logs begin on %s (%d days ago), and %d days are needed to tell; to keep more, make the journal persistent (mkdir -p /var/log/journal) or keep more rotated logs",
+				undecided, kl.Since.Format("2006-01-02"), int(kl.Checked.Sub(kl.Since).Hours()/24), keyUnusedDays)
 		}
 		return out, ""
 	},

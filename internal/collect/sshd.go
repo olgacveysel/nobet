@@ -157,6 +157,50 @@ func (f *Facts) LoginAllowed(cfg map[string][]string, user string) bool {
 	return true
 }
 
+// KeyLogin reports whether user can log in over SSH with a key, and from
+// where when sshd allows it only from some addresses ("" for anywhere).
+func (f *Facts) KeyLogin(user string) (from string, ok bool) {
+	if _, expired, _ := f.Password(user); expired {
+		return "", false
+	}
+	isRoot := false
+	for _, p := range f.Passwd {
+		if p.Name == user && p.UID == 0 {
+			isRoot = true
+		}
+	}
+	var froms []string
+	for _, v := range f.SSHDViews(user) {
+		if isRoot && SSHDFirst(v.Config, "permitrootlogin") == "no" {
+			continue
+		}
+		if PubkeyAuth(v.Config) && f.LoginAllowed(v.Config, user) {
+			froms = append(froms, v.From)
+		}
+	}
+	return SSHDWhere(froms), len(froms) > 0
+}
+
+// PubkeyAuth reports whether an sshd config accepts key logins. A nil
+// (unknown) config counts as yes.
+func PubkeyAuth(cfg map[string][]string) bool {
+	return SSHDFirst(cfg, "pubkeyauthentication") != "no"
+}
+
+// SSHDWhere describes the sshd views something is possible in: "" when one
+// of them is "from anywhere", otherwise "from <Match Address entries>".
+func SSHDWhere(from []string) string {
+	for _, f := range from {
+		if f == "" {
+			return ""
+		}
+	}
+	if len(from) == 0 {
+		return ""
+	}
+	return "from " + strings.Join(from, ", ")
+}
+
 // sshdPatterns splits sshd -T values, which may hold several
 // space-separated patterns per line.
 func sshdPatterns(values []string) []string {

@@ -88,9 +88,9 @@ ROOT ACCESS BY SSH KEY
 
 SHA256:tnsW9C5r…  ed25519  veysel@laptop
   root on 3 host(s):
-    web01  as deploy  via sudo ALL, no password
-    web02  as root    via UID 0 login
-    db01   as ops     via docker group  [only from "10.0.0.5"]
+    web01  as deploy  via sudo ALL, no password  (last login 2026-10-20)
+    web02  as root    via UID 0 login  (no login since 2026-06-01)
+    db01   as ops     via docker group  [only from "10.0.0.5"]  (last login 2026-10-21)
 
 ROOT-CAPABLE ACCOUNTS WITHOUT SSH KEY ACCESS
     web02  backup  via sudo ALL, password required
@@ -99,7 +99,7 @@ INCOMPLETE
     db02   not scanned: connection refused
 ```
 
-Use `-json` for machine-readable output. Full results need root or passwordless sudo on every host.
+The last login comes from sshd's log messages (see ACC-006); "no login since" gives the date the logs begin. Use `-json` for machine-readable output. Full results need root or passwordless sudo on every host.
 
 #### Key owners and offboarding
 
@@ -305,6 +305,7 @@ Measured with 50 hosts (the size nöbet is built for): a full scan takes about 1
 | ACC-003 | High            | Members of root-equivalent groups (docker, lxd, incus) |
 | ACC-004 | High            | Limited sudo rules that still give a root shell or root file writes (editors, pagers, interpreters, `find`, `tee`… see GTFOBins) |
 | ACC-005 | Critical / High | Accounts with an empty password that can log in; Critical when the account can become root |
+| ACC-006 | Medium / Low    | Authorized SSH keys that have not logged in for 90 days, from sshd's log messages (see below); Medium when the key reaches an account that can become root |
 | NET-001 | Critical / High / Info | The Docker API without TLS (port 2375) on any non-loopback address (Critical: root for anyone who can connect); databases and admin APIs listening on all interfaces |
 | NET-002 | Medium / Low    | No host firewall filtering incoming traffic (ufw, firewalld, nftables, iptables); Medium when services are exposed |
 | FS-001  | Critical / High / Medium | SUID on programs that spawn a root shell (bash, find, vim, python…), SUID files in /tmp or home directories, SUID files not owned by any package |
@@ -320,6 +321,8 @@ Measured with 50 hosts (the size nöbet is built for): a full scan takes about 1
 Update checks only read the package manager's local cache. Nöbet never refreshes metadata or installs anything; when there is no cache to read, the check is skipped and tells you which command would create one.
 
 FS-003 follows what root runs: root's cron jobs (`/etc/crontab`, `/etc/cron.d`, root's crontab, anacron, and the scripts in `/etc/cron.daily` and the like or Alpine's `/etc/periodic`), systemd services that run as root (unit files, drop-ins and every `Exec` command) and the `+` or `!` commands of services that run as another user, root's shell startup files, the directories on root's PATH (the standard ones, `/etc/environment` and sudo's `secure_path`), the programs sudo rules let someone run as root, and the account, sudo and dynamic loader configuration. For scripts outside the package-managed directories, the `#!` interpreter counts too (a cron script that runs `/opt/app/venv/bin/python` is only as safe as that virtualenv), and so do the files the script runs or sources by absolute path. Those are found on the host by awk; only paths leave it, never script contents. From each command line it takes the programs and the scripts given to interpreters (`php /var/www/app/artisan`, `sh -c '...'`), not arguments or redirections, and leaves out commands that switch to another user (`sudo -u`, `su`). A file counts as changeable by an account that owns it or can write it, or that can write any directory above it (a sticky directory like `/tmp` protects what is already in it); symlinks are followed. The accounts found show up in the root access map, which lists up to three such files per account.
+
+ACC-006 reads sshd's "Accepted publickey" messages, which name the key, from the journal and from `/var/log/auth.log`, `secure` and `messages` (rotated and gzipped copies included); only times, account names and key fingerprints leave the host. A key line counts as used when any account that reads that file logged in with it. It needs logs that reach back 90 days; when some key has no recent login and the logs are shorter (RHEL keeps its journal in memory and four weeks of `/var/log/secure` by default), the check is skipped and says how far back they go. A persistent journal (`mkdir -p /var/log/journal`) fixes that. Keys kept for emergencies can be allowlisted by fingerprint. The root access map shows each key's last login too.
 
 UPD-004 knows Ubuntu, Debian (including its free LTS period) and Raspbian, RHEL, Rocky Linux, AlmaLinux, CentOS and CentOS Stream, Oracle Linux, Fedora, Alpine, openSUSE Leap, SLES and Amazon Linux. Support dates come from [endoflife.date](https://endoflife.date) and are built into each release; nöbet does not go online for them. Rolling releases are skipped. Nöbet never refreshes metadata or installs anything; when there is no cache to read, the check is skipped and tells you which command would create one.
 
@@ -342,6 +345,7 @@ UPD-004 knows Ubuntu, Debian (including its free LTS period) and Raspbian, RHEL,
 - FS-003 checks the files that command lines name with a path, script interpreters, the directories on root's PATH, and what those scripts run or source by absolute path, one level deep. Paths built from variables, and libraries, are not followed.
 - sudo Defaults are honored as `sudo -l` reports them, for the user, per runas user (`Defaults>root targetpw`) and per command (`Defaults!/usr/bin/vim rootpw`); host-bound Defaults are taken as already applied by sudo.
 - SUID and world-writable checks search /bin, /sbin, /usr, /opt, /etc, /tmp, /var/tmp, /home, /root and /srv, without crossing filesystems; the rest of /var is skipped because container storage holds many copies of SUID binaries.
+- ACC-006 trusts only journal entries from root's sshd processes, which no other account can fake. Syslog files cannot tell sshd's messages from ones any local account writes with `logger`, so on hosts without a journal (Alpine, or the time before the journal begins) a local account could make a key look used. Keys from `AuthorizedKeysCommand` are not listed, so ACC-006 cannot check them; a certificate login counts as a use of its CA's `cert-authority` line.
 - Local scanning is Linux-only; from macOS or Windows, scan hosts over SSH.
 
 ## Roadmap
@@ -378,6 +382,7 @@ UPD-004 knows Ubuntu, Debian (including its free LTS period) and Raspbian, RHEL,
 - [x] PDF reports (`-pdf`, and HTML/PDF downloads in the dashboard)
 - [x] Scans asked for from the dashboard, run by the scanner account through a queue
 - [x] Reports from saved scans (`nobet report`), changes over a period (`nobet diff -since`), findings by check in the dashboard
+- [x] SSH keys that have not logged in for 90 days (ACC-006), and each key's last login in the root access map
 
 ## Project layout
 

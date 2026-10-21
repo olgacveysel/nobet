@@ -440,6 +440,9 @@ func (m model) rootLines(w int) []string {
 			if g.Restricted != "" {
 				line += styleDim.Render("  [" + g.Restricted + "]")
 			}
+			if l := g.LoginText(); l != "" {
+				line += styleDim.Render("  (" + l + ")")
+			}
 			add(line, 4)
 		}
 		lines = append(lines, "")

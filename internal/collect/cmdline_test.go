@@ -115,6 +115,11 @@ User=
 DynamicUser=no
 FragmentPath=/etc/systemd/system/multi.service
 ExecStart={ path=/usr/bin/true ; argv[]=/usr/bin/true ; ignore_errors=no ; start_time=[n/a] ; stop_time=[n/a] ; pid=0 ; code=(null) ; status=0/0 } ; { path=/opt/second ; argv[]=/opt/second now ; ignore_errors=no ; start_time=[n/a] ; stop_time=[n/a] ; pid=0 ; code=(null) ; status=0/0 }
+
+Id=console-getty.service
+LoadState=masked
+User=
+FragmentPath=/etc/systemd/system/console-getty.service
 `
 	got := systemdJobs(splitRaw(out))
 	want := []RootJob{

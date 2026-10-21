@@ -2,8 +2,10 @@ package rootmap
 
 import (
 	"bytes"
+	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/olgacveysel/nobet/internal/collect"
 	"github.com/olgacveysel/nobet/internal/scan"
@@ -161,5 +163,43 @@ func TestSudoRoutePerCommand(t *testing.T) {
 	}
 	if r, _ := sudoRoute(entries, collect.PasswordSet, authFor); r.Via != "sudo /usr/bin/less (shell escape), no password" {
 		t.Errorf("got %+v", r)
+	}
+}
+
+func TestBuildKeyLogins(t *testing.T) {
+	since := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	used := time.Date(2026, 10, 11, 9, 30, 0, 0, time.UTC)
+	f := &collect.Facts{
+		SSHD:   map[string][]string{"permitrootlogin": {"prohibit-password"}},
+		Passwd: []collect.PasswdEntry{{Name: "root", UID: 0}, {Name: "deploy", UID: 1000}},
+		SudoRights: map[string][]collect.SudoEntry{
+			"deploy": {{RunAs: "ALL", NoPasswd: true, Commands: []string{"ALL"}}},
+		},
+		AuthKeys: []collect.AuthKey{
+			{User: "root", Fingerprint: fpLaptop, Type: "ssh-ed25519"},
+			{User: "deploy", Fingerprint: fpLaptop, Type: "ssh-ed25519"},
+		},
+		KeyLogins:    &collect.KeyLogins{Since: since, Last: map[string]time.Time{"deploy " + fpLaptop: used}},
+		RootWritable: []collect.WritablePath{},
+	}
+	m := Build([]scan.HostResult{host("web01", f), host("db01", &collect.Facts{
+		SSHD: f.SSHD, Passwd: f.Passwd, AuthKeys: f.AuthKeys[:1], RootWritable: []collect.WritablePath{}, // logs not read
+	})})
+	got := map[string]string{}
+	for _, g := range m.Keys[0].Grants {
+		got[g.Host+" "+g.User] = g.LoginText()
+	}
+	want := map[string]string{
+		"web01 root":   "no login since 2026-06-01",
+		"web01 deploy": "last login 2026-10-11",
+		"db01 root":    "",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("logins: %v, want %v", got, want)
+	}
+	var buf bytes.Buffer
+	m.WriteText(&buf)
+	if !strings.Contains(buf.String(), "(last login 2026-10-11)") || !strings.Contains(buf.String(), "(no login since 2026-06-01)") {
+		t.Errorf("text output:\n%s", buf.String())
 	}
 }

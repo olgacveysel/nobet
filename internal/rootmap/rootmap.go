@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 	"text/tabwriter"
+	"time"
 
 	"github.com/olgacveysel/nobet/internal/collect"
 	"github.com/olgacveysel/nobet/internal/scan"
@@ -25,10 +26,24 @@ type Route struct {
 
 // Grant is root access that a key gives on one host, as one account.
 type Grant struct {
-	Host       string  `json:"host"`
-	User       string  `json:"user"`
-	Routes     []Route `json:"routes"`
-	Restricted string  `json:"restricted,omitempty"` // forced command or source restriction on the key
+	Host       string    `json:"host"`
+	User       string    `json:"user"`
+	Routes     []Route   `json:"routes"`
+	Restricted string    `json:"restricted,omitempty"` // forced command or source restriction on the key
+	LastLogin  time.Time `json:"last_login,omitzero"`  // the key's newest login as User in sshd's logs
+	LogsSince  time.Time `json:"logs_since,omitzero"`  // how far back those logs go; zero if they were not read
+}
+
+// LoginText says when the key last logged in as the account, as far as
+// sshd's logs tell; "" when they were not read.
+func (g Grant) LoginText() string {
+	switch {
+	case !g.LastLogin.IsZero():
+		return "last login " + g.LastLogin.Format("2006-01-02")
+	case !g.LogsSince.IsZero():
+		return "no login since " + g.LogsSince.Format("2006-01-02")
+	}
+	return ""
 }
 
 // Key is an SSH key that leads to root on at least one host.
@@ -191,7 +206,7 @@ func Build(results []scan.HostResult) Map {
 		for _, user := range users {
 			rs := routes[user]
 			ks := keysByUser[user]
-			from, ok := keyLogin(f, user)
+			from, ok := f.KeyLogin(user)
 			if len(ks) == 0 || !ok {
 				if f.AuthKeys != nil {
 					m.KeylessUsers = append(m.KeylessUsers, Account{Host: r.Host, User: user, Routes: rs})
@@ -211,7 +226,12 @@ func Build(results []scan.HostResult) Map {
 				if ak.Comment != "" && !contains(k.Comments, ak.Comment) {
 					k.Comments = append(k.Comments, ak.Comment)
 				}
-				k.Grants = append(k.Grants, Grant{Host: r.Host, User: user, Routes: rs, Restricted: restricted})
+				g := Grant{Host: r.Host, User: user, Routes: rs, Restricted: restricted}
+				if kl := f.KeyLogins; kl != nil && !kl.Since.IsZero() {
+					g.LogsSince = kl.Since
+					g.LastLogin, _ = kl.LastLogin(user, ak.Fingerprint)
+				}
+				k.Grants = append(k.Grants, g)
 			}
 		}
 	}
@@ -240,7 +260,7 @@ func Routes(f *collect.Facts) (map[string][]Route, []string) {
 		if len(from) == 0 {
 			return
 		}
-		if w := where(from); w != "" {
+		if w := collect.SSHDWhere(from); w != "" {
 			via += " " + w
 		}
 		add(user, Route{Via: via, NeedsPassword: needsPassword})
@@ -287,7 +307,7 @@ func Routes(f *collect.Facts) (map[string][]Route, []string) {
 				forcedFrom = append(forcedFrom, v.From)
 				continue
 			}
-			if pubkeyAuth(v.Config) {
+			if collect.PubkeyAuth(v.Config) {
 				keyFrom = append(keyFrom, v.From)
 			}
 			if prl == "yes" && collect.SSHDFirst(v.Config, "passwordauthentication") == "yes" {
@@ -413,50 +433,6 @@ func fileRoutes(f *collect.Facts, uid0 map[string]bool, add func(string, Route))
 	}
 }
 
-// keyLogin reports whether user can log in over SSH with a key, and from
-// where when sshd allows it only from some addresses ("" for anywhere).
-func keyLogin(f *collect.Facts, user string) (from string, ok bool) {
-	if _, expired, _ := f.Password(user); expired {
-		return "", false
-	}
-	isRoot := false
-	for _, p := range f.Passwd {
-		if p.Name == user && p.UID == 0 {
-			isRoot = true
-		}
-	}
-	var froms []string
-	for _, v := range f.SSHDViews(user) {
-		if isRoot && collect.SSHDFirst(v.Config, "permitrootlogin") == "no" {
-			continue
-		}
-		if pubkeyAuth(v.Config) && f.LoginAllowed(v.Config, user) {
-			froms = append(froms, v.From)
-		}
-	}
-	return where(froms), len(froms) > 0
-}
-
-// pubkeyAuth reports whether an sshd config accepts key logins. A nil
-// (unknown) config counts as yes.
-func pubkeyAuth(cfg map[string][]string) bool {
-	return collect.SSHDFirst(cfg, "pubkeyauthentication") != "no"
-}
-
-// where describes the sshd views a route exists in: "" when one of them
-// is "from anywhere", otherwise "from <Match Address entries>".
-func where(from []string) string {
-	for _, f := range from {
-		if f == "" {
-			return ""
-		}
-	}
-	if len(from) == 0 {
-		return ""
-	}
-	return "from " + strings.Join(from, ", ")
-}
-
 func join(a, b string) string {
 	if a == "" {
 		return b
@@ -541,6 +517,9 @@ func (m Map) WriteText(w io.Writer) {
 			line := fmt.Sprintf("    %s\tas %s\tvia %s", g.Host, g.User, routeText(g.Routes))
 			if g.Restricted != "" {
 				line += "  [" + g.Restricted + "]"
+			}
+			if l := g.LoginText(); l != "" {
+				line += "  (" + l + ")"
 			}
 			fmt.Fprintln(tw, line)
 		}

@@ -453,6 +453,9 @@ func (p *pdfWriter) rootMap(m rootmap.Map) {
 			if g.Restricted != "" {
 				line += "  [" + g.Restricted + "]"
 			}
+			if l := g.LoginText(); l != "" {
+				line += "  (" + l + ")"
+			}
 			p.setFont(fontRegular, 8.5, colInk)
 			p.para(margin+12, contentW-12, 11, line)
 		}

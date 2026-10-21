@@ -12,8 +12,8 @@
   <div class="muted">root on {{.Hosts}} host(s)</div>
   <div class="wrap">
   <table>
-    <thead><tr><th>Host</th><th>As user</th><th>Route to root</th><th>Restrictions</th></tr></thead>
-    <tbody>{{range .Grants}}<tr><td><a href="/host/{{.Host}}">{{.Host}}</a></td><td><code>{{.User}}</code></td><td>{{routes .Routes}}</td><td>{{.Restricted}}</td></tr>{{end}}</tbody>
+    <thead><tr><th>Host</th><th>As user</th><th>Route to root</th><th>Restrictions</th><th>Key logins</th></tr></thead>
+    <tbody>{{range .Grants}}<tr><td><a href="/host/{{.Host}}">{{.Host}}</a></td><td><code>{{.User}}</code></td><td>{{routes .Routes}}</td><td>{{.Restricted}}</td><td>{{.LoginText}}</td></tr>{{end}}</tbody>
   </table>
   </div>
 </section>

@@ -167,6 +167,7 @@ type Facts struct {
 	Groups          []GroupEntry
 	Shadow          []ShadowEntry // password states, root only
 	AuthKeys        []AuthKey
+	KeyLogins       *KeyLogins // when keys last logged in, from sshd's log messages; root only
 	Listeners       []Listener
 	Updates         *Updates
 	Reboot          *Reboot
@@ -349,7 +350,7 @@ func Collect(r runner.Runner) *Facts {
 	// users' keys and sudo rights are only fully readable as root; partial
 	// data would look complete, so skip them entirely otherwise.
 	if !f.Privileged() {
-		for _, name := range []string{"sudoers", "shadow", "firewall", "files", "authkeys", "sudo-rights", "root-jobs"} {
+		for _, name := range []string{"sudoers", "shadow", "firewall", "files", "authkeys", "keylogins", "sudo-rights", "root-jobs"} {
 			f.Errors[name] = "needs root or passwordless sudo"
 		}
 		return f
@@ -373,6 +374,11 @@ func Collect(r runner.Runner) *Facts {
 		f.AuthKeys = parseAuthKeys(out)
 		if f.AuthKeys == nil {
 			f.AuthKeys = []AuthKey{}
+		}
+	}
+	if out, ok := run("keylogins", script(keyLoginsScript, true)); ok {
+		if f.KeyLogins = parseKeyLogins(out); f.KeyLogins == nil {
+			f.Errors["keylogins"] = "reading sshd's log messages stopped early"
 		}
 	}
 	if out, ok := run("sudo-rights", script(sudoRightsScript, true)); ok {

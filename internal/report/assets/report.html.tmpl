@@ -125,8 +125,8 @@
   <div class="fp mono">{{if .Owner}}<b class="owner">{{.Owner}}</b> · {{else if $.Root.OwnersFile}}<span class="unclaimed">no known owner</span> · {{end}}<b>{{.Fingerprint}}</b> · {{.Type}}{{range .Comments}} · {{.}}{{end}}</div>
   <div class="note">root on {{.Hosts}} host(s)</div>
   <table>
-    <thead><tr><th>Host</th><th>As user</th><th>Route to root</th><th>Key restrictions</th></tr></thead>
-    <tbody>{{range .Grants}}<tr><td>{{.Host}}</td><td><code>{{.User}}</code></td><td>{{range $i, $r := .Routes}}{{if $i}}; {{end}}{{$r.Via}}{{end}}</td><td>{{.Restricted}}</td></tr>{{end}}</tbody>
+    <thead><tr><th>Host</th><th>As user</th><th>Route to root</th><th>Key restrictions</th><th>Key logins</th></tr></thead>
+    <tbody>{{range .Grants}}<tr><td>{{.Host}}</td><td><code>{{.User}}</code></td><td>{{range $i, $r := .Routes}}{{if $i}}; {{end}}{{$r.Via}}{{end}}</td><td>{{.Restricted}}</td><td>{{.LoginText}}</td></tr>{{end}}</tbody>
   </table>
 </div>
 {{end}}
