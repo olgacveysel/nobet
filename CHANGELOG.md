@@ -3,6 +3,7 @@
 ## Unreleased
 
 - ACC-006: authorized SSH keys that have not logged in for 90 days, from sshd's "Accepted publickey" messages in the journal and the syslog files (rotated and gzipped ones too); Medium when the key reaches an account that can become root. Only journal entries from root's sshd are trusted, so no local account can make a key look used there. When the logs do not reach back 90 days, the check says how far they go instead of guessing.
+- CTR-001: running Docker and podman containers that can take over the host: privileged, a control socket mounted (Docker, podman, containerd, CRI-O, systemd, D-Bus; read-only or through `/run` or `/` too, if the socket exists), host paths root runs mounted writable, escape capabilities, raw disks (High); the host's PID namespace or its password hashes and SSH keys readable (Medium); no seccomp or AppArmor (Low). The containers' environment never leaves the host.
 - The root access map (text, TUI, HTML, PDF and the dashboard) shows when each key last logged in as each account.
 - FS-003 no longer reports masked systemd services: their unit file is a link to /dev/null, which anyone can write to, but systemd never starts them.
 - `nobet report -pdf FILE` (and/or `-html FILE`): the reports from the saved history, without scanning, from each host's newest successful scan; `-host` narrows it. For a weekly report from cron.

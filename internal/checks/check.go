@@ -98,6 +98,7 @@ func All() []Check {
 		unusedKeys,
 		exposedListeners,
 		hostFirewall,
+		containerEscape,
 		pendingSecurityUpdates,
 		rebootRequired,
 		staleUpdateLists,

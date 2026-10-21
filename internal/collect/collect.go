@@ -167,7 +167,9 @@ type Facts struct {
 	Groups          []GroupEntry
 	Shadow          []ShadowEntry // password states, root only
 	AuthKeys        []AuthKey
-	KeyLogins       *KeyLogins // when keys last logged in, from sshd's log messages; root only
+	KeyLogins       *KeyLogins  // when keys last logged in, from sshd's log messages; root only
+	Containers      []Container // running Docker and podman containers; root only
+	ControlSockets  []string    // which of ControlSockets exist, read with Containers
 	Listeners       []Listener
 	Updates         *Updates
 	Reboot          *Reboot
@@ -350,7 +352,7 @@ func Collect(r runner.Runner) *Facts {
 	// users' keys and sudo rights are only fully readable as root; partial
 	// data would look complete, so skip them entirely otherwise.
 	if !f.Privileged() {
-		for _, name := range []string{"sudoers", "shadow", "firewall", "files", "authkeys", "keylogins", "sudo-rights", "root-jobs"} {
+		for _, name := range []string{"sudoers", "shadow", "firewall", "files", "authkeys", "keylogins", "containers", "sudo-rights", "root-jobs"} {
 			f.Errors[name] = "needs root or passwordless sudo"
 		}
 		return f
@@ -379,6 +381,13 @@ func Collect(r runner.Runner) *Facts {
 	if out, ok := run("keylogins", script(keyLoginsScript, true)); ok {
 		if f.KeyLogins = parseKeyLogins(out); f.KeyLogins == nil {
 			f.Errors["keylogins"] = "reading sshd's log messages stopped early"
+		}
+	}
+	if out, ok := run("containers", script(containersScript, true)); ok {
+		if cs, sockets, why := parseContainers(out); why != "" {
+			f.Errors["containers"] = why
+		} else {
+			f.Containers, f.ControlSockets = cs, sockets
 		}
 	}
 	if out, ok := run("sudo-rights", script(sudoRightsScript, true)); ok {
