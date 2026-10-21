@@ -7,6 +7,9 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"strconv"
+	"strings"
+	"time"
 
 	"github.com/olgacveysel/nobet/internal/drift"
 )
@@ -16,9 +19,11 @@ func runDiff(args []string) int {
 	jsonOut := fs.Bool("json", false, "print changes as JSON")
 	fs.BoolVar(jsonOut, "j", false, "shorthand for -json")
 	hostGlob := fs.String("host", "*", "only hosts matching this pattern (shell-style, e.g. 'web*')")
+	sinceFlag := fs.String("since", "", "compare with each host's newest scan from before this long ago (7d, 2w, 36h) instead of its previous scan")
 	histDir := addHistoryFlag(fs)
 	fs.Usage = func() {
-		fmt.Fprint(fs.Output(), "Show what changed on each host between its last two saved scans:\n"+
+		fmt.Fprint(fs.Output(), "Show what changed on each host between its last two saved scans (or,\n"+
+			"with -since, since a week or any time ago):\n"+
 			"new routes to root, SSH keys, accounts and their passwords, group\n"+
 			"memberships, sshd settings, listening ports and findings.\n\nUsage:\n  nobet diff [flags]\n\n"+
 			"Exit status is 1 when there are changes, so cron can alert on it.\n\nFlags:\n")
@@ -40,7 +45,21 @@ func runDiff(args []string) int {
 		fmt.Fprintln(os.Stderr, "nobet:", err)
 		return exitUsage
 	}
-	all, once, never, err := drift.Latest(dir)
+	var all []drift.HostDrift
+	var once, never []string
+	onceNote := "Only one successful scan so far"
+	if *sinceFlag != "" {
+		d, perr := parseSince(*sinceFlag)
+		if perr != nil {
+			fmt.Fprintln(os.Stderr, "nobet: -since:", perr)
+			return exitUsage
+		}
+		cutoff := time.Now().Add(-d)
+		all, once, never, err = drift.Since(dir, cutoff)
+		onceNote = "No successful scan from before " + cutoff.Format("2006-01-02 15:04") + " to compare with"
+	} else {
+		all, once, never, err = drift.Latest(dir)
+	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "nobet:", err)
 		return exitUsage
@@ -78,7 +97,7 @@ func runDiff(args []string) int {
 		}
 		drift.WriteText(os.Stdout, drifts)
 		if h := matching(once); len(h) > 0 {
-			fmt.Printf("\nOnly one successful scan so far: %v\n", h)
+			fmt.Printf("\n%s: %v\n", onceNote, h)
 		}
 		if h := matching(never); len(h) > 0 {
 			fmt.Printf("\nNever scanned successfully: %v\n", h)
@@ -91,4 +110,22 @@ func runDiff(args []string) int {
 		return exitFindings
 	}
 	return exitOK
+}
+
+// parseSince reads a period such as 7d, 2w or 36h (any Go duration works).
+func parseSince(v string) (time.Duration, error) {
+	for suffix, unit := range map[string]time.Duration{"d": 24 * time.Hour, "w": 7 * 24 * time.Hour} {
+		if n, ok := strings.CutSuffix(v, suffix); ok {
+			days, err := strconv.Atoi(n)
+			if err != nil || days < 1 {
+				return 0, fmt.Errorf("%q: want a period like 7d, 2w or 36h", v)
+			}
+			return time.Duration(days) * unit, nil
+		}
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil || d <= 0 {
+		return 0, fmt.Errorf("%q: want a period like 7d, 2w or 36h", v)
+	}
+	return d, nil
 }

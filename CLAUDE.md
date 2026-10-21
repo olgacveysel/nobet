@@ -15,7 +15,7 @@ On Windows without a Go toolchain, the WSL distro has one in `~/.local/goroot/bi
 ## Layout
 
 ```
-cmd/nobet/          CLI: main.go (dispatch, banner), targets.go (shared host flags), scan.go, rootmap.go, diff.go, checks.go, hook.go (-on-change)
+cmd/nobet/          CLI: main.go (dispatch, banner), targets.go (shared host flags), scan.go, rootmap.go, diff.go (-since), checks.go, hook.go (-on-change), report.go (reports from history)
 cmd/nobet-web/      read-only dashboard binary (flags, server, graceful shutdown; oidc.go: sign-in flags)
 internal/runner/    Runner interface and Result only (no dependencies)
 internal/transport/ Local (/bin/sh) and SSH runners (agent incl. Windows pipe, keys, strict known_hosts, ProxyJump chains)
@@ -29,11 +29,11 @@ internal/allow/     allowlist (check-id host-glob [match] # reason)
 internal/keys/      keys file: who owns which SSH key (owner fingerprint-or-pubkey # note), for rootmap names and -who
 internal/queue/     scan requests from nobet-web (<id>.json -> .running -> .done) for `nobet scan -queue`
 internal/store/     scan history in ~/.local/share/nobet/scans or $NOBET_DATA_DIR/scans (0700/0600; 0640 in a group-readable dir; keep 100)
-internal/drift/     changes between two snapshots of a host
+internal/drift/     changes between two snapshots of a host; Since (newest scan vs. newest before a cutoff)
 internal/rootmap/   fleet-wide "who can become root where", grouped by SSH key
 internal/report/    text, JSON, HTML (embedded template + logo in assets/), PDF (gopdf + Go fonts; pdf.go)
 internal/tui/       Bubble Tea UI; `r` toggles root access view
-internal/web/       nobet-web: history index, pages (embedded templates/ and static/); auth.go (OIDC sign-in, signed cookies), access.go (login gate, audit log)
+internal/web/       nobet-web: history index, pages (embedded templates/ and static/); auth.go (OIDC sign-in, signed cookies), access.go (login gate, audit log), checkview.go (findings by check, /check/{id})
 contrib/systemd/    nobet-scan.service/.timer, nobet-scan-queue.service/.path (dashboard requests) and nobet-web.service (hardened)
 contrib/docker/     nobet-scan-loop: the scanner image's entrypoint (adds -on-change for an executable config/on-change)
 contrib/hooks/      -on-change examples (slack: curl or busybox wget, no jq, so it runs in the scanner image)
@@ -86,7 +86,8 @@ Decided by the maintainer on 2026-10-14:
 
 - Module `github.com/olgacveysel/nobet`; `.goreleaser.yaml` has homepage and maintainer (Veysel <olgacveysel@gmail.com>). `goreleaser check` and a snapshot release pass.
 - Repo github.com/olgacveysel/nobet, default branch `master`. CI runs on pushes to `master`, pull requests and manual dispatch (`gh workflow run ci`); every push to `master` also uploads test packages (the `packages` artifact, kept 14 days).
-- The GitHub release body is the version's CHANGELOG.md section (release.yml extracts `## vX.Y.Z`; `-rcN` tags use the same section), so write the notes there.
+- The release workflow passes `GORELEASER_CURRENT_TAG`: on 2026-10-21 v0.1.0-rc1 and v0.1.0 were pushed on one commit, and goreleaser picked rc1 for both (the v0.1.0 run then failed uploading duplicates). To rebuild a tag's release without moving the tag (never move a pushed tag: the Go module proxy and sum.golang.org may have recorded it), run `gh workflow run release -f tag=vX.Y.Z`; such runs are signed as `release.yml@refs/heads/master`, which the README's verify commands accept.
+- The GitHub release body is the version's CHANGELOG.md section (release.yml extracts `## vX.Y.Z`; `-rcN` tags use the same section), so write the notes there. Changes after a release go under `## Unreleased`, renamed to `## vX.Y.Z — date` when releasing.
 - To release: refresh the OS support dates (`go generate ./internal/checks`, which rewrites `eol_data.go` from endoflife.date; review the diff), date the CHANGELOG entry, then `git tag -a vX.Y.Z -m vX.Y.Z && git push origin vX.Y.Z`; the release workflow does the rest. A tag with a suffix (`-rc1`) becomes a pre-release.
 - Pre-release tags have no dot: `v0.1.0-rc1`, `v0.2.0-beta1`. Packages become `0.1.0~rc1` (deb, rpm) and `0.1.0_rc1` (apk), which sort before `0.1.0` and upgrade cleanly. With a dot (`-rc.1`) the apk version `0.1.0_rc.1` is invalid for apk (checked 2026-10-21; the beta.1/beta.3 apks have that problem, and `apk add` of a newer file still replaces them). GitHub shows the `~` as `.` in asset names.
 - The release workflow also signs `checksums.txt` (cosign keyless, `*.sigstore.json` bundle), writes an SBOM per archive (syft), and after the GitHub release pushes `ghcr.io/olgacveysel/nobet-{scanner,web}` for amd64 and arm64 (signed, SBOM and provenance attached; pre-releases get only their version tag). Snapshots must pass `--skip=sign`: goreleaser does not skip signing in snapshot mode, and cosign would start an interactive login. New GHCR packages can start out private: after the first image release, check that both are public (package settings).
@@ -95,7 +96,7 @@ Decided by the maintainer on 2026-10-14:
 
 ## Roadmap (next)
 
-- v0.1.0: real-server testing passed (2026-10-21, maintainer); release prepared (CHANGELOG dated, support dates refreshed, release notes from CHANGELOG). Next: tag v0.1.0-rc1, check the release and images, then tag v0.1.0. v0.1.0-beta.3 (2026-10-20) went through the whole release workflow: signed checksums, SBOMs, and signed public multi-arch images on GHCR (cosign verify passes). beta.2 failed at setup (cosign-installer has no floating v4 tag; pinned to v4.1.2).
+- v0.1.0: real-server testing passed (2026-10-21, maintainer). v0.1.0-rc1 released 2026-10-21 (28 assets, images 0.1.0-rc1). The v0.1.0 tag is on the same commit (89207a1); its first release run failed (goreleaser picked rc1). Next: push the fixed release.yml, `gh workflow run release -f tag=v0.1.0`, then check the release body, assets, and the 0.1.0/0.1/latest images (cosign verify). v0.1.0-beta.3 (2026-10-20) went through the whole release workflow: signed checksums, SBOMs, and signed public multi-arch images on GHCR (cosign verify passes). beta.2 failed at setup (cosign-installer has no floating v4 tag; pinned to v4.1.2).
 - Candidates: CIS Benchmark IDs in the HTML report (only with a verified mapping)
 - KRN-001 only checks sysctls whose defaults are safe everywhere (verified from the distributions' sysctl.d files on 2026-10-21; ptrace_scope, kptr_restrict and dmesg_restrict differ, e.g. RHEL ships ptrace_scope 0). Widen it only after checking real servers.
 - "Accounts with keys unused for months" needs real servers (login records: lastlog is going away, wtmp rotates); do it with real-server testing

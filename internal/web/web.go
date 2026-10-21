@@ -92,7 +92,7 @@ func New(opts Options) (*Server, error) {
 		"routes": routeText,
 		"join":   strings.Join,
 	}
-	for _, name := range []string{"fleet", "host", "changes", "root", "message"} {
+	for _, name := range []string{"fleet", "host", "changes", "root", "check", "message"} {
 		t, err := template.New("").Funcs(funcs).ParseFS(files, "templates/layout.tmpl", "templates/"+name+".tmpl")
 		if err != nil {
 			return nil, err
@@ -111,6 +111,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /host/{name}", s.handleHost)
 	mux.HandleFunc("GET /changes", s.handleChanges)
 	mux.HandleFunc("GET /root", s.handleRoot)
+	mux.HandleFunc("GET /check/{id}", s.handleCheck)
 	mux.HandleFunc("GET /report.html", s.handleReport)
 	mux.HandleFunc("GET /report.pdf", s.handleReport)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) { fmt.Fprintln(w, "ok") })
@@ -214,6 +215,7 @@ type fleetPage struct {
 	Rows        []hostRow
 	Trend       *trend
 	Recent      []changeGroup
+	Checks      []checkRow
 }
 
 func (s *Server) handleFleet(w http.ResponseWriter, r *http.Request) {
@@ -243,6 +245,7 @@ func (s *Server) handleFleet(w http.ResponseWriter, r *http.Request) {
 			p.Stale++
 		}
 	}
+	p.Checks = ix.checkRows()
 	p.Recent = ix.groups
 	if len(p.Recent) > 8 {
 		p.Recent = p.Recent[:8]

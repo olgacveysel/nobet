@@ -41,6 +41,16 @@
 </table>
 </div>
 
+{{if .Checks}}
+<h2>Findings by check</h2>
+<div class="wrap">
+<table>
+  <thead><tr><th>Check</th><th>Worst</th><th class="num">hosts</th><th class="num">allowlisted</th></tr></thead>
+  <tbody>{{range .Checks}}<tr><td><a href="{{.Href}}"><code>{{.ID}}</code></a> {{.Title}}</td><td><span class="chip chip-{{.Worst}}">{{.Worst}}</span></td><td class="num">{{.Hosts}}</td><td class="num muted">{{.Allowed}}</td></tr>{{end}}</tbody>
+</table>
+</div>
+{{end}}
+
 <h2>Recent changes</h2>
 {{template "changegroups" .Recent}}
 <p><a href="/changes">All changes →</a></p>

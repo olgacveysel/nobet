@@ -35,11 +35,11 @@ To build from a checkout: `make test build` (builds `nobet` and `nobet-web`).
 
 ### Verify a download
 
-Releases come with an SPDX SBOM per archive (`*.sbom.json`) and a signed `checksums.txt`. The signature is keyless ([Sigstore](https://www.sigstore.dev/)): it proves the file was made by this repository's release workflow for a tag, and it is recorded in a public transparency log. With [cosign](https://docs.sigstore.dev/cosign/system_config/installation/):
+Releases come with an SPDX SBOM per archive (`*.sbom.json`) and a signed `checksums.txt`. The signature is keyless ([Sigstore](https://www.sigstore.dev/)): it proves the file was made by this repository's release workflow (run for a tag, or started by hand from `master` to rebuild a tag's release), and it is recorded in a public transparency log. With [cosign](https://docs.sigstore.dev/cosign/system_config/installation/):
 
 ```bash
 cosign verify-blob checksums.txt --bundle checksums.txt.sigstore.json \
-  --certificate-identity-regexp '^https://github\.com/olgacveysel/nobet/\.github/workflows/release\.yml@refs/tags/v' \
+  --certificate-identity-regexp '^https://github\.com/olgacveysel/nobet/\.github/workflows/release\.yml@refs/(tags/v|heads/master$)' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 sha256sum --ignore-missing -c checksums.txt
 ```
@@ -127,6 +127,12 @@ nobet scan -p -i hosts.txt -html report.html -pdf report.pdf
 
 `-html` writes a single self-contained HTML file (no external scripts, fonts or images) and `-pdf` an A4 PDF, both with a severity summary, a table of hosts (worst first), every host's findings with fixes, allowlisted findings with their reasons, skipped checks, and the root access map. The files are created with mode 0600 because they describe weaknesses and access paths. The dashboard offers the same reports for download, from each host's newest scan.
 
+`nobet report` writes them from the saved history without scanning, from each host's newest successful scan, for example for a weekly report from cron (`-host 'web*'` narrows it to some hosts):
+
+```bash
+nobet report -history-dir /var/lib/nobet/scans -pdf weekly.pdf
+```
+
 In the TUI, press `r` to switch to the root access map for the hosts scanned so far.
 
 ### Allowlist
@@ -165,11 +171,13 @@ Every scan is saved to `~/.local/share/nobet/scans` (directory mode 0700, files 
 
 Changes to root access and keys are only compared when both scans were privileged, so a scan without sudo never produces false alarms. `nobet diff` exits with status 1 when anything changed, which makes a simple cron alert possible: `nobet scan -p -i hosts.txt >/dev/null; nobet diff -host 'db*' || mail ...`.
 
+`nobet diff -since 7d` (or `2w`, `36h`) compares each host's newest scan with its newest scan from before then, instead of with the previous scan: everything that changed this week, for a weekly review. Hosts with no scan that old are named, not compared.
+
 For complete remote results, the SSH user should be root or have passwordless sudo, because reading the effective sshd config and sudoers requires root. Without it, those checks are reported as skipped.
 
 ## Team dashboard: `nobet-web`
 
-`nobet-web` is a separate, optional binary and package that shows the scan history to your team in a browser: fleet status with a 30-day trend, each host's findings and scan history, every change between scans, and the root access map.
+`nobet-web` is a separate, optional binary and package that shows the scan history to your team in a browser: fleet status with a 30-day trend, findings by check (which hosts have each problem, where it is allowlisted and why), each host's findings and scan history, every change between scans, and the root access map.
 
 **It is read-only by design.** It never scans, never connects to your servers and holds no SSH keys (its build is tested to contain no SSH client at all). A systemd timer runs `nobet scan` under a service account and saves to a shared history directory, which the dashboard only reads. If the dashboard were compromised, an attacker would learn your weaknesses but could not act on them; with scan requests turned on, they could at most ask for more read-only scans of hosts the scanner already knows.
 
@@ -274,7 +282,7 @@ Compose runs the release images `ghcr.io/olgacveysel/nobet-scanner` and `ghcr.io
 
 ```bash
 cosign verify ghcr.io/olgacveysel/nobet-web:0.1.0 \
-  --certificate-identity-regexp '^https://github\.com/olgacveysel/nobet/\.github/workflows/release\.yml@refs/tags/v' \
+  --certificate-identity-regexp '^https://github\.com/olgacveysel/nobet/\.github/workflows/release\.yml@refs/(tags/v|heads/master$)' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 docker buildx imagetools inspect ghcr.io/olgacveysel/nobet-web:0.1.0 --format '{{ json .SBOM }}'
 ```
@@ -347,7 +355,7 @@ UPD-004 knows Ubuntu, Debian (including its free LTS period) and Raspbian, RHEL,
 - [x] Firewall status, SUID binaries, world-writable paths
 - [x] `~/.ssh/config` support (aliases, users, ports, keys, ProxyJump chains)
 - [x] HTML and PDF reports for auditors (`-html`, `-pdf`)
-- [ ] First tagged release, v0.1.0 (see CHANGELOG.md)
+- [x] First tagged release, v0.1.0 (see CHANGELOG.md)
 - [x] Follow custom `AuthorizedKeysFile` and `AllowUsers`/`DenyUsers`/`AllowGroups`/`DenyGroups` in rootmap
 - [x] Flag limited sudo rules that allow shell escapes (GTFOBins)
 - [x] ssh-agent on Windows (OpenSSH named pipe)
@@ -369,6 +377,7 @@ UPD-004 knows Ubuntu, Debian (including its free LTS period) and Raspbian, RHEL,
 - [x] `nobet-web`: built-in OIDC sign-in with a read-only role, and an audit log of who viewed what
 - [x] PDF reports (`-pdf`, and HTML/PDF downloads in the dashboard)
 - [x] Scans asked for from the dashboard, run by the scanner account through a queue
+- [x] Reports from saved scans (`nobet report`), changes over a period (`nobet diff -since`), findings by check in the dashboard
 
 ## Project layout
 

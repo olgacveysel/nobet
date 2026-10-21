@@ -21,7 +21,7 @@
 {{if not .Findings}}<p class="ok">No findings.</p>{{end}}
 {{range .Findings}}
 <div class="finding">
-  <div><span class="chip chip-{{.Severity}}">{{upper .Severity}}</span> <code>{{.CheckID}}</code> <span class="title">{{.Title}}</span></div>
+  <div><span class="chip chip-{{.Severity}}">{{upper .Severity}}</span> <a href="/check/{{.CheckID}}"><code>{{.CheckID}}</code></a> <span class="title">{{.Title}}</span></div>
   {{if .Detail}}<p class="detail">{{.Detail}}</p>{{end}}
   {{if .Fix}}<p class="fix">Fix: {{.Fix}}</p>{{end}}
 </div>

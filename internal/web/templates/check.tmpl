@@ -1,0 +1,33 @@
+{{define "content"}}
+<p class="crumbs"><a href="/">Fleet</a> /</p>
+<h1><code>{{.ID}}</code> {{.Title}}</h1>
+<p class="sub">From each host's newest successful scan: {{len .Affected}} of {{.Scanned}} host(s) have findings{{if .Allowed}}, {{len .Allowed}} with allowlisted ones{{end}}{{if .Skipped}}, {{len .Skipped}} could not run it{{end}}, {{.Passed}} passed.</p>
+
+{{if .Affected}}
+<h2>Findings</h2>
+{{range .Affected}}
+<section class="check-host">
+  <h3><a href="{{.Href}}">{{.Host}}</a></h3>
+  {{range .Findings}}
+  <div class="finding">
+    <div><span class="chip chip-{{.Severity}}">{{upper .Severity}}</span> <span class="title">{{.Title}}</span></div>
+    {{if .Detail}}<p class="detail">{{.Detail}}</p>{{end}}
+    {{if .Fix}}<p class="fix">Fix: {{.Fix}}</p>{{end}}
+  </div>
+  {{end}}
+</section>
+{{end}}
+{{else}}
+<p>No host has an active finding for this check.</p>
+{{end}}
+
+{{if .Allowed}}
+<h2>Allowlisted</h2>
+<ul class="plain">{{range .Allowed}}{{$h := .}}{{range .Items}}<li><a href="{{$h.Href}}">{{$h.Host}}</a>: {{.Title}}{{if .Reason}} — <i>{{.Reason}}</i>{{end}} <span class="muted">({{.Rule}})</span></li>{{end}}{{end}}</ul>
+{{end}}
+
+{{if .Skipped}}
+<h2>Could not run</h2>
+<ul class="plain muted">{{range .Skipped}}<li><a href="{{.Href}}">{{.Host}}</a>: {{.Reason}}</li>{{end}}</ul>
+{{end}}
+{{end}}

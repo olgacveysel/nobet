@@ -27,6 +27,7 @@ Commands:
   scan, s          Audit this machine, or remote hosts over SSH
   rootmap, r       Show who can become root on which host, and how
   diff, d          Show what changed since the previous scan
+  report           Write an HTML or PDF report from saved scans
   checks, c        List every check (IDs for the allowlist)
   version, -v      Print the version
   help, -h         Show help for a command
@@ -51,6 +52,8 @@ func run(args []string) int {
 		return runDiff(rest)
 	case "checks", "c":
 		return runChecks(rest)
+	case "report":
+		return runReport(rest)
 	case "version", "v", "-v", "-version", "--version":
 		// Scripts parse `nobet version`, so the logo only goes to terminals.
 		if isTerminal(os.Stdout) {
@@ -69,6 +72,8 @@ func run(args []string) int {
 				return runDiff([]string{"-h"})
 			case "checks", "c":
 				return runChecks([]string{"-h"})
+			case "report":
+				return runReport([]string{"-h"})
 			}
 		}
 		printBanner(os.Stdout)

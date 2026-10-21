@@ -140,6 +140,45 @@ func Compare(old, cur store.HostSnapshot) HostDrift {
 	return d
 }
 
+// Since compares every host's newest successful scan with its newest
+// successful scan from before cutoff, reading the history one scan at a
+// time. Hosts without a successful scan from before cutoff are returned in
+// before (nothing to compare with), hosts without any in never.
+func Since(dir string, cutoff time.Time) (drifts []HostDrift, before, never []string, err error) {
+	base, cur := map[string]store.HostSnapshot{}, map[string]store.HostSnapshot{}
+	seen := map[string]bool{}
+	var hosts []string
+	err = store.Walk(dir, func(s store.Snapshot) error {
+		for _, h := range s.Hosts {
+			if !seen[h.Host] {
+				seen[h.Host] = true
+				hosts = append(hosts, h.Host)
+			}
+			if h.Error != "" || h.Facts == nil {
+				continue
+			}
+			cur[h.Host] = h
+			if !h.Time.After(cutoff) {
+				base[h.Host] = h
+			}
+		}
+		return nil
+	})
+	sort.Strings(hosts)
+	for _, h := range hosts {
+		c, ok := cur[h]
+		switch b, hasBase := base[h]; {
+		case !ok:
+			never = append(never, h)
+		case !hasBase:
+			before = append(before, h)
+		default:
+			drifts = append(drifts, Compare(b, c))
+		}
+	}
+	return drifts, before, never, err
+}
+
 // Latest compares the two most recent successful scans of every host in
 // the history at dir. Hosts with a single successful scan are returned in
 // once, hosts without any in never.

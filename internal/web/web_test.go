@@ -423,3 +423,32 @@ func TestScanRequestsRestricted(t *testing.T) {
 		t.Errorf("scan requests off: %d", rec.Code)
 	}
 }
+
+func TestCheckPage(t *testing.T) {
+	dir := t.TempDir()
+	history(t, dir)
+	h := newServer(t, dir, nil)
+	fleet := get(t, h, "GET", "/").Body.String()
+	if !strings.Contains(fleet, "Findings by check") || !strings.Contains(fleet, `<a href="/check/ACC-002"><code>ACC-002</code></a>`) {
+		t.Error("the fleet page should list findings by check")
+	}
+	if !strings.Contains(get(t, h, "GET", "/host/web01").Body.String(), `href="/check/ACC-002"`) {
+		t.Error("a host page should link each finding's check")
+	}
+	rec := get(t, h, "GET", "/check/ACC-002")
+	body := rec.Body.String()
+	// web01 and db01 (its last successful scan) both have it.
+	if rec.Code != 200 || !strings.Contains(body, "2 of 2 host(s) have findings") || !strings.Contains(body, `<a href="/host/web01">web01</a>`) {
+		t.Errorf("check page: %d\n%s", rec.Code, body)
+	}
+	// NET-001 is allowlisted on web01, UPD-001 skipped there.
+	if body := get(t, h, "GET", "/check/NET-001").Body.String(); !strings.Contains(body, "public web") {
+		t.Error("allowlisted occurrences should be listed with their reason")
+	}
+	if body := get(t, h, "GET", "/check/UPD-001").Body.String(); !strings.Contains(body, "apk package index cache is missing") {
+		t.Error("hosts that could not run the check should be listed")
+	}
+	if rec := get(t, h, "GET", "/check/NOPE-1"); rec.Code != http.StatusNotFound {
+		t.Errorf("unknown check: %d", rec.Code)
+	}
+}

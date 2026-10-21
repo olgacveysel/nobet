@@ -8,6 +8,7 @@ import (
 
 	"github.com/olgacveysel/nobet/internal/checks"
 	"github.com/olgacveysel/nobet/internal/collect"
+	"github.com/olgacveysel/nobet/internal/scan"
 	"github.com/olgacveysel/nobet/internal/store"
 )
 
@@ -130,5 +131,38 @@ func TestCompareFileRoutesLikeWithLike(t *testing.T) {
 	d := Compare(store.HostSnapshot{Host: "h", Facts: before}, store.HostSnapshot{Host: "h", Facts: after})
 	if len(d.Changes) != 1 || !strings.Contains(d.Changes[0].What, "deploy via changes /opt/app/run.sh, used by root's cron (/etc/cron.d/app)") {
 		t.Errorf("got %+v", d.Changes)
+	}
+}
+
+func TestSince(t *testing.T) {
+	dir := t.TempDir()
+	day := func(n int) time.Time { return time.Date(2026, 10, n, 3, 0, 0, 0, time.UTC) }
+	f1, f2, f3 := facts(), facts(), facts()
+	f2.Passwd = append(f2.Passwd, collect.PasswdEntry{Name: "tmp", UID: 1001, Shell: "/bin/sh"})
+	f3.Passwd = append(f2.Passwd, collect.PasswdEntry{Name: "late", UID: 1002, Shell: "/bin/sh"})
+	save := func(at time.Time, rs ...scan.HostResult) {
+		if _, err := store.Save(dir, rs, at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	save(day(1), scan.HostResult{Host: "web01", Facts: f1})
+	save(day(10), scan.HostResult{Host: "web01", Facts: f2}, scan.HostResult{Host: "new01", Facts: f1}, scan.HostResult{Host: "down", Error: "refused"})
+	save(day(20), scan.HostResult{Host: "web01", Facts: f3})
+
+	// Since day 5: day 1 against day 20, so both new accounts show.
+	drifts, before, never, err := Since(dir, day(5))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(drifts) != 1 || drifts[0].Host != "web01" || len(drifts[0].Changes) != 2 || !drifts[0].From.Equal(day(1)) {
+		t.Errorf("drifts = %+v", drifts)
+	}
+	if strings.Join(before, ",") != "new01" || strings.Join(never, ",") != "down" {
+		t.Errorf("before %v, never %v", before, never)
+	}
+	// Since day 15: day 10 against day 20, so only the later account.
+	drifts, _, _, _ = Since(dir, day(15))
+	if len(drifts) != 2 || drifts[1].Host != "web01" || len(drifts[1].Changes) != 1 || !strings.Contains(drifts[1].Changes[0].What, "late") {
+		t.Errorf("drifts = %+v", drifts)
 	}
 }
