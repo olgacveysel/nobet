@@ -124,6 +124,9 @@ type Firewall struct {
 	IptChecked     bool   `json:"iptables_checked"`
 	IptInputRules  int    `json:"iptables_input_rules"`
 	IptInputPolicy string `json:"iptables_input_policy,omitempty"`
+	// Rules in Docker's DOCKER-USER chains (IPv4 and IPv6), the place to
+	// filter published ports, which bypass INPUT rules and so ufw.
+	DockerUserRules int `json:"docker_user_rules,omitempty"`
 }
 
 // Active reports whether any firewall filters incoming traffic.
@@ -841,6 +844,12 @@ func parseFirewall(s string) *Firewall {
 			section, fw.NftChecked = "nft", true
 		case line == "@@iptables":
 			section, fw.IptChecked = "ipt", true
+		case line == "@@docker-user":
+			section = "docker-user"
+		case section == "docker-user":
+			if strings.HasPrefix(line, "-A DOCKER-USER ") && line != "-A DOCKER-USER -j RETURN" {
+				fw.DockerUserRules++
+			}
 		case line == "@@end":
 			section = ""
 		case section == "nft":

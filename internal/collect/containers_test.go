@@ -11,10 +11,12 @@ import (
 	"testing"
 )
 
-// Real inspect output with containerFormat: Docker 27 and podman 5.8.
+// Real inspect output with containerFormat: Docker 27 and podman 5.8 (db
+// publishes a port on IPv4 and IPv6).
 const (
 	dockerWeb    = `{"name":"/web","image":"alpine:3.22","privileged":false,"pid":"","net":"bridge","cap_add":null,"security_opt":null,"mounts":[{"Type":"volume","Name":"webdata","Source":"/var/lib/docker/volumes/webdata/_data","Destination":"/data","Driver":"local","Mode":"z","RW":true,"Propagation":""},{"Type":"bind","Source":"/srv","Destination":"/srv","Mode":"","RW":true,"Propagation":"rprivate"}],"devices":[]}`
 	dockerCapsys = `{"name":"/capsys","image":"alpine:3.22","privileged":false,"pid":"","net":"bridge","cap_add":["SYS_ADMIN"],"security_opt":null,"mounts":[],"devices":[]}`
+	dockerDB     = `{"name":"/db","image":"alpine:3.22","privileged":false,"pid":"","net":"bridge","cap_add":null,"security_opt":null,"mounts":[],"devices":[],"ports":{"5432/tcp":[{"HostIp":"0.0.0.0","HostPort":"5432"},{"HostIp":"::","HostPort":"5432"}]}}`
 	podmanRun    = `{"name":"prun","image":"docker.io/library/alpine:3.22","privileged":false,"pid":"private","net":"host","cap_add":[],"security_opt":[],"mounts":[{"Type":"bind","Source":"/run","Destination":"/hostrun","Driver":"","Mode":"","Options":["rbind"],"RW":false,"Propagation":"rprivate"}],"devices":[]}`
 )
 
@@ -43,7 +45,7 @@ func TestContainersScript(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	idWeb, idCap, idRun := strings.Repeat("a", 64), strings.Repeat("b", 64), strings.Repeat("c", 64)
+	idWeb, idCap, idRun, idDB := strings.Repeat("a", 64), strings.Repeat("b", 64), strings.Repeat("c", 64), strings.Repeat("d", 64)
 	write("docker", `#!/bin/sh
 case "$1" in
 --version) [ -n "$SHIM" ] && echo "podman version 5.8.9" || echo "Docker version 27.3.1, build ce12230" ;;
@@ -51,10 +53,10 @@ ps)
   [ -n "$DOWN" ] && { echo "Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?" >&2; exit 1; }
   [ -n "$DENIED" ] && { echo "permission denied while trying to connect to the Docker daemon socket" >&2; exit 1; }
   echo "WARNING: Error loading config file" >&2
-  echo `+idWeb+`; echo `+idCap+` ;;
+  echo `+idWeb+`; echo `+idCap+`; echo `+idDB+` ;;
 inspect)
-  case "$*" in *`+idWeb+`*`+idCap+`*) ;; *) exit 1 ;; esac
-  echo '`+dockerWeb+`'; echo '`+dockerCapsys+`' ;;
+  case "$*" in *`+idWeb+`*`+idCap+`*`+idDB+`*) ;; *) exit 1 ;; esac
+  echo '`+dockerWeb+`'; echo '`+dockerCapsys+`'; echo '`+dockerDB+`' ;;
 esac
 `)
 	write("podman", `#!/bin/sh
@@ -86,19 +88,21 @@ esac
 		{Type: "bind", Source: "/srv", Destination: "/srv", RW: true},
 	}}
 	capsys := Container{Runtime: "docker", Name: "capsys", Image: "alpine:3.22", NetworkMode: "bridge", CapAdd: []string{"SYS_ADMIN"}}
+	db := Container{Runtime: "docker", Name: "db", Image: "alpine:3.22", NetworkMode: "bridge", Ports: []PublishedPort{
+		{Proto: "tcp", HostIP: "0.0.0.0", HostPort: 5432, Port: 5432}, {Proto: "tcp", HostIP: "::", HostPort: 5432, Port: 5432}}}
 	prun := Container{Runtime: "podman", Name: "prun", Image: "docker.io/library/alpine:3.22", PidMode: "private", NetworkMode: "host",
 		CapAdd: []string{}, SecurityOpt: []string{}, Mounts: []Mount{{Type: "bind", Source: "/run", Destination: "/hostrun"}}}
 
 	// podman has no storage yet: it is left alone, since podman ps would
 	// create it.
-	if got, why := run(); why != "" || !reflect.DeepEqual(got, []Container{web, capsys}) {
+	if got, why := run(); why != "" || !reflect.DeepEqual(got, []Container{web, capsys, db}) {
 		t.Errorf("docker only: %q\n%+v", why, got)
 	}
 	if !reflect.DeepEqual(sockets, []string{sock}) {
 		t.Errorf("sockets: %v, want %v", sockets, sock)
 	}
 	os.Mkdir(storage, 0o700)
-	if got, why := run(); why != "" || !reflect.DeepEqual(got, []Container{web, capsys, prun}) {
+	if got, why := run(); why != "" || !reflect.DeepEqual(got, []Container{web, capsys, db, prun}) {
 		t.Errorf("docker and podman: %q\n%+v", why, got)
 	}
 	// A daemon that is not running has no containers; podman-docker is

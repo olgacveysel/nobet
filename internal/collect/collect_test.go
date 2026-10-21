@@ -229,6 +229,17 @@ table inet filter {
 	if none.Active() {
 		t.Errorf("only FORWARD rules (e.g. Docker) should not count as an input firewall: %+v", none)
 	}
+
+	// DOCKER-USER as Docker leaves it (older versions add a RETURN), for
+	// IPv4 and IPv6, and with ufw-docker's rules in it.
+	empty := parseFirewall("ufw=Status: active\n@@iptables\n-P INPUT DROP\n-A INPUT -j ufw-before-input\n@@end\n@@docker-user\n-N DOCKER-USER\n-A DOCKER-USER -j RETURN\n-N DOCKER-USER\n@@end\n")
+	if empty.DockerUserRules != 0 || empty.IptInputRules != 1 {
+		t.Errorf("Docker's own DOCKER-USER: %+v", empty)
+	}
+	filtered := parseFirewall("@@docker-user\n-N DOCKER-USER\n-A DOCKER-USER -j ufw-user-forward\n-A DOCKER-USER -i eth0 -p tcp -m tcp --dport 5432 -j DROP\n-A DOCKER-USER -j RETURN\n@@end\n")
+	if filtered.DockerUserRules != 2 {
+		t.Errorf("ufw-docker rules: %+v", filtered)
+	}
 }
 
 func TestParseFiles(t *testing.T) {

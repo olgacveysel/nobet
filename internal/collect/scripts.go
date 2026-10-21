@@ -253,6 +253,12 @@ if command -v iptables >/dev/null 2>&1; then
   echo "@@iptables"
   iptables -S INPUT 2>/dev/null
   echo "@@end"
+  # Docker's published ports pass through FORWARD, not INPUT; DOCKER-USER
+  # is where they can be filtered.
+  echo "@@docker-user"
+  iptables -S DOCKER-USER 2>/dev/null
+  ip6tables -S DOCKER-USER 2>/dev/null
+  echo "@@end"
 fi
 true
 `

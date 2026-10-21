@@ -2,22 +2,33 @@ package collect
 
 import (
 	"encoding/json"
+	"sort"
+	"strconv"
 	"strings"
 )
 
 // Container is a running container and the parts of its configuration
 // that decide what it can do to the host.
 type Container struct {
-	Runtime     string   `json:"runtime"` // docker or podman
-	Name        string   `json:"name"`
-	Image       string   `json:"image,omitempty"`
-	Privileged  bool     `json:"privileged,omitempty"`
-	PidMode     string   `json:"pid_mode,omitempty"`
-	NetworkMode string   `json:"network_mode,omitempty"`
-	CapAdd      []string `json:"cap_add,omitempty"`
-	SecurityOpt []string `json:"security_opt,omitempty"`
-	Mounts      []Mount  `json:"mounts,omitempty"`
-	Devices     []string `json:"devices,omitempty"` // host paths of devices passed in
+	Runtime     string          `json:"runtime"` // docker or podman
+	Name        string          `json:"name"`
+	Image       string          `json:"image,omitempty"`
+	Privileged  bool            `json:"privileged,omitempty"`
+	PidMode     string          `json:"pid_mode,omitempty"`
+	NetworkMode string          `json:"network_mode,omitempty"`
+	CapAdd      []string        `json:"cap_add,omitempty"`
+	SecurityOpt []string        `json:"security_opt,omitempty"`
+	Mounts      []Mount         `json:"mounts,omitempty"`
+	Devices     []string        `json:"devices,omitempty"` // host paths of devices passed in
+	Ports       []PublishedPort `json:"ports,omitempty"`
+}
+
+// PublishedPort is a container port published on a host address.
+type PublishedPort struct {
+	Proto    string `json:"proto"`
+	HostIP   string `json:"host_ip,omitempty"` // "", 0.0.0.0 or :: for every address
+	HostPort int    `json:"host_port"`
+	Port     int    `json:"port"` // inside the container
 }
 
 // Mount is a host path or volume mounted into a container.
@@ -45,7 +56,8 @@ var ControlSockets = []string{
 // passwords, on the host.
 const containerFormat = `{"name":{{json .Name}},"image":{{json .Config.Image}},"privileged":{{json .HostConfig.Privileged}},` +
 	`"pid":{{json .HostConfig.PidMode}},"net":{{json .HostConfig.NetworkMode}},"cap_add":{{json .HostConfig.CapAdd}},` +
-	`"security_opt":{{json .HostConfig.SecurityOpt}},"mounts":{{json .Mounts}},"devices":{{json .HostConfig.Devices}}}`
+	`"security_opt":{{json .HostConfig.SecurityOpt}},"mounts":{{json .Mounts}},"devices":{{json .HostConfig.Devices}},` +
+	`"ports":{{json .NetworkSettings.Ports}}}`
 
 // containersScript lists the running containers of root's Docker daemon
 // and of root's podman, and which ControlSockets exist. podman only runs
@@ -117,6 +129,10 @@ func parseContainers(s string) ([]Container, []string, string) {
 				Devices []struct {
 					PathOnHost string
 				} `json:"devices"`
+				Ports map[string][]struct { // "80/tcp": where it is published; null if only exposed
+					HostIP   string `json:"HostIp"`
+					HostPort string
+				} `json:"ports"`
 			}
 			if err := json.Unmarshal([]byte(line), &raw); err != nil {
 				return nil, nil, rt + ": unreadable inspect output"
@@ -129,6 +145,28 @@ func parseContainers(s string) ([]Container, []string, string) {
 			for _, d := range raw.Devices {
 				c.Devices = append(c.Devices, d.PathOnHost)
 			}
+			for spec, binds := range raw.Ports {
+				num, proto, _ := strings.Cut(spec, "/")
+				port, err := strconv.Atoi(num)
+				if err != nil {
+					continue
+				}
+				for _, b := range binds {
+					if hp, err := strconv.Atoi(b.HostPort); err == nil {
+						c.Ports = append(c.Ports, PublishedPort{Proto: proto, HostIP: b.HostIP, HostPort: hp, Port: port})
+					}
+				}
+			}
+			sort.Slice(c.Ports, func(i, j int) bool {
+				a, b := c.Ports[i], c.Ports[j]
+				if a.HostPort != b.HostPort {
+					return a.HostPort < b.HostPort
+				}
+				if a.Proto != b.Proto {
+					return a.Proto < b.Proto
+				}
+				return a.HostIP < b.HostIP
+			})
 			out = append(out, c)
 		}
 	}
