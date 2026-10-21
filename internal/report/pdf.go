@@ -257,9 +257,9 @@ func PDF(w io.Writer, results []scan.HostResult, meta HTMLMeta) error {
 	p.text(margin+nw, "security report")
 	p.y += 32
 	p.setFont(fontRegular, 9, colMuted)
-	p.text(margin, fmt.Sprintf("Generated %s · nöbet %s · %d host(s) · read-only scan of SSH, sudo, accounts, network, updates and files",
+	p.para(margin, contentW, 12, fmt.Sprintf("Generated %s · nöbet %s · %d host(s) · read-only scan of SSH, sudo, accounts, keys, network, containers, updates and files",
 		meta.Generated.UTC().Format("2006-01-02 15:04 UTC"), meta.Version, len(d.Hosts)))
-	p.y += 14
+	p.y += 2
 	p.rule(p.y)
 	p.y += 16
 

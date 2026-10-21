@@ -117,7 +117,7 @@
 
 {{if .HasRoot}}
 <h2>Root access map</h2>
-<p class="note">Who can become root on which host, grouped by SSH key. Routes: direct UID 0 login (respecting PermitRootLogin), sudo as resolved by sudo (including limited rules that escape to a shell), root-equivalent groups (docker, lxd, incus), and files root runs that the account can change.{{if .Root.OwnersFile}} Key owners come from <code>{{.Root.OwnersFile}}</code>.{{end}}</p>
+<p class="note">Who can become root on which host, grouped by SSH key. Routes: direct UID 0 login (respecting PermitRootLogin), sudo as resolved by sudo (including limited rules that escape to a shell), root-equivalent groups (docker, lxd, incus), and files root runs that the account can change. Key logins come from sshd's log messages; a key whose private half other accounts can read somewhere is marked, since they can use every route it has.{{if .Root.OwnersFile}} Key owners come from <code>{{.Root.OwnersFile}}</code>.{{end}}</p>
 {{if not .Root.Keys}}<p>No SSH key leads to root on the scanned hosts.</p>{{end}}
 {{with .Root.Unclaimed}}<p class="unclaimed">{{len .}} key(s) with root access have no owner in the keys file.</p>{{end}}
 {{range .Root.Keys}}

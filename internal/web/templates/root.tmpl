@@ -1,6 +1,6 @@
 {{define "content"}}
 <h1>Root access</h1>
-<p class="sub">Who can become root on which host, and how, grouped by SSH key, from each host's newest successful scan. Routes: direct UID 0 login (respecting PermitRootLogin and Match blocks), sudo as resolved by sudo itself, limited sudo rules that escape to a shell, and root-equivalent groups.</p>
+<p class="sub">Who can become root on which host, and how, grouped by SSH key, from each host's newest successful scan. Routes: direct UID 0 login (respecting PermitRootLogin and Match blocks), sudo as resolved by sudo itself, limited sudo rules that escape to a shell, root-equivalent groups, and files root runs that the account can change. Key logins come from sshd's log messages; a key whose private half other accounts can read somewhere is marked, since they can use every route it has.</p>
 {{if .Empty}}<p class="muted">No scans yet.</p>{{else}}
 {{with .Map}}
 {{if .OwnersFile}}<p class="muted">Key owners come from <code>{{.OwnersFile}}</code>.</p>{{end}}
