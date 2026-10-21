@@ -57,15 +57,21 @@ func (w Writer) String() string {
 
 // WritablePath is a file root runs or trusts that someone else can change.
 type WritablePath struct {
-	Kind    string   `json:"kind"`   // as in RootJob
-	Source  string   `json:"source"` // as in RootJob
-	Path    string   `json:"path"`
-	Writers []Writer `json:"writers"`
+	Kind     string   `json:"kind"`   // as in RootJob
+	Source   string   `json:"source"` // as in RootJob
+	Path     string   `json:"path"`
+	CalledBy string   `json:"called_by,omitempty"` // the script that runs or sources Path, when the job names that script
+	Writers  []Writer `json:"writers"`
 }
 
 // Use says what root does with the file, e.g. "used by root's cron
 // (/etc/cron.d/backup)".
 func (w WritablePath) Use() string {
+	if w.CalledBy != "" {
+		v := w
+		v.CalledBy = ""
+		return "run or sourced by " + w.CalledBy + ", which is " + v.Use()
+	}
 	switch w.Kind {
 	case "cron":
 		return "used by root's cron (" + w.Source + ")"
@@ -455,14 +461,16 @@ func rootPaths(jobs []RootJob) (paths []string, truncated bool) {
 // that, a line "stat|uid|gid|octal mode|type|path", then
 // "link|path|resolved" for those and "@@end". For scripts outside the
 // package-managed directories it also prints "interp|script|interpreter"
-// for their #! line, and covers the interpreter the same way. paths must
-// be shell-safe (see rootPaths).
+// for their #! line and "calls|script|path" for the programs they run and
+// the files they source by absolute path (read on the host by awk, so only
+// paths leave it, never script contents), and covers those paths the same
+// way. paths must be shell-safe (see rootPaths).
 func pathsScript(paths []string) string {
 	return fmt.Sprintf(`set -f
 IFS='
 '
 paths='%s'
-interps=''
+extra=''
 for p in $paths; do
   case "$p" in /usr/bin/*|/usr/sbin/*|/bin/*|/sbin/*|/usr/lib/*|/usr/lib64/*|/usr/libexec/*|/lib/*|/lib64/*) continue ;; esac
   [ -f "$p" ] || continue
@@ -470,11 +478,40 @@ for p in $paths; do
   case "$first" in '#!'*) ;; *) continue ;; esac
   i=$(echo "${first#??}" | awk '{ sub(/\r$/, ""); if ($1 ~ /\/env$/) { for (k = 2; k <= NF; k++) if ($k !~ /^-/ && $k !~ /=/) { print "env " $k; exit } } else print $1 }')
   case "$i" in 'env '*) i=$(PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin command -v "${i#env }" 2>/dev/null) ;; esac
-  case "$i" in /*) echo "interp|$p|$i"; interps="$interps
+  case "$i" in /*) echo "interp|$p|$i"; extra="$extra
 $i" ;; esac
+  calls=$(head -c 65536 "$p" 2>/dev/null | awk 'function ok(p) { return p ~ /^\/[A-Za-z0-9._+,:@%%~=\/-]+$/ }
+/^[ \t]*#/ { next }
+{
+  line = $0
+  gsub(/\|\||&&|[;|&]/, "\n", line)
+  nc = split(line, cmds, "\n")
+  for (c = 1; c <= nc; c++) {
+    nw = split(cmds[c], w, /[ \t]+/)
+    i = 1
+    while (i <= nw && (w[i] == "" || w[i] ~ /^[A-Za-z_][A-Za-z0-9_]*=/ || w[i] ~ /^(if|then|do|else|elif|while|until|!|exec|nohup|time|command|[{(])$/)) i++
+    if (i > nw) continue
+    p = w[i]
+    if (p == "." || p == "source") { p = w[i + 1] }
+    else {
+      b = p; sub(/.*\//, "", b)
+      if (b ~ /^(sh|bash|dash|ash|ksh|zsh|python[0-9.]*|perl|php[0-9.]*|ruby|node)$/) {
+        if (ok(p)) print p
+        for (j = i + 1; j <= nw && w[j] ~ /^-/; j++) {}
+        p = w[j]
+      }
+    }
+    if (ok(p)) print p
+  }
+}' | sort -u | head -n 50)
+  for c in $calls; do
+    echo "calls|$p|$c"
+    extra="$extra
+$c"
+  done
 done
 targets=''
-for p in $paths $interps; do
+for p in $paths $extra; do
   q=$p
   while [ -n "$q" ] && [ ! -L "$q" ]; do q=${q%%/*}; done
   if [ -n "$q" ]; then
@@ -484,7 +521,7 @@ $t"
 done
 {
   echo /
-  for p in $paths $interps $targets; do
+  for p in $paths $extra $targets; do
     q=$p
     while [ -n "$q" ]; do echo "$q"; q=${q%%/*}; done
   done
@@ -495,12 +532,12 @@ echo "@@end"
 
 // parsePaths reads pathsScript output. Paths that do not exist are simply
 // absent. It returns nil maps when the output is incomplete.
-func parsePaths(s string) (entries map[string]PathEntry, links, interps map[string]string) {
-	entries, links, interps = map[string]PathEntry{}, map[string]string{}, map[string]string{}
+func parsePaths(s string) (entries map[string]PathEntry, links, interps map[string]string, calls map[string][]string) {
+	entries, links, interps, calls = map[string]PathEntry{}, map[string]string{}, map[string]string{}, map[string][]string{}
 	for _, line := range strings.Split(s, "\n") {
 		line = strings.TrimRight(line, "\r")
 		if line == "@@end" {
-			return entries, links, interps
+			return entries, links, interps, calls
 		}
 		parts := strings.SplitN(line, "|", 6)
 		switch {
@@ -508,6 +545,8 @@ func parsePaths(s string) (entries map[string]PathEntry, links, interps map[stri
 			links[parts[1]] = strings.Join(parts[2:], "|")
 		case parts[0] == "interp" && len(parts) >= 3:
 			interps[parts[1]] = strings.Join(parts[2:], "|")
+		case parts[0] == "calls" && len(parts) == 3:
+			calls[parts[1]] = append(calls[parts[1]], parts[2])
 		case parts[0] == "stat" && len(parts) == 6:
 			uid, err1 := strconv.Atoi(parts[1])
 			gid, err2 := strconv.Atoi(parts[2])
@@ -527,7 +566,7 @@ func parsePaths(s string) (entries map[string]PathEntry, links, interps map[stri
 			entries[parts[5]] = PathEntry{UID: uid, GID: gid, Mode: uint32(mode), Type: typ}
 		}
 	}
-	return nil, nil, nil
+	return nil, nil, nil, nil
 }
 
 // Writers returns the accounts other than root that can change p: its
@@ -655,6 +694,11 @@ func (f *Facts) writablePaths() []WritablePath {
 			}
 			if ws := f.Writers(p); len(ws) > 0 {
 				out = append(out, WritablePath{Kind: j.Kind, Source: j.Source, Path: p, Writers: ws})
+			}
+			for _, c := range f.Calls[p] {
+				if ws := f.Writers(c); len(ws) > 0 {
+					out = append(out, WritablePath{Kind: j.Kind, Source: j.Source, Path: c, CalledBy: p, Writers: ws})
+				}
 			}
 		}
 	}

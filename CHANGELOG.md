@@ -21,14 +21,15 @@ nöbet audits Linux servers over SSH, or the machine it runs on, without install
 - Updates: pending security updates (apt, dnf, dnf5, yum, zypper; every pending update for apk, which does not label security fixes), reboot required, stale package indexes for every manager.
 - Automatic security updates off (UPD-005): unattended-upgrades, dnf-automatic, dnf5-automatic and yum-cron.
 - OS end of support (UPD-004): past or within 180 days, for 13 distributions, with Ubuntu Pro ESM detected; dates from endoflife.date, built in.
+- Kernel hardening (KRN-001): ASLR, symlink and hardlink protection, setuid core dumps, SYN cookies, source routing.
 - Files: SUID shells and interpreters, SUID files in temporary or home directories or outside any package, world-writable system paths.
-- Files root runs that other accounts can change (FS-003): cron jobs, run-parts scripts, systemd services running as root (and `+`/`!` commands of other services), root's shell startup files and PATH directories, script interpreters, programs named in sudo rules, and account/sudo/loader configuration; each account found is a route in `nobet rootmap`.
+- Files root runs that other accounts can change (FS-003): cron jobs, run-parts scripts, systemd services running as root (and `+`/`!` commands of other services), root's shell startup files and PATH directories, script interpreters and what scripts run or source, programs named in sudo rules, and account/sudo/loader configuration; each account found is a route in `nobet rootmap`.
 
 **Access and change tracking**
 - `nobet rootmap`: who can become root on which host and how, grouped by SSH key; follows `AuthorizedKeysFile`, applies `AllowUsers`/`DenyUsers`/`AllowGroups`/`DenyGroups`, account password states, and sudo's `rootpw`/`targetpw`/`!authenticate` Defaults per user, runas user and command.
 - Key owners (`-keys`, `~/.config/nobet/keys`): the root access map names who each key belongs to and flags keys with root access that nobody claims; `nobet rootmap -who alice` lists everything to revoke when someone leaves.
 - `nobet diff`: what changed since the previous scan (root routes, keys, accounts, password states, group memberships, SUID files, sshd settings, firewall, ports, findings).
-- Allowlist for reviewed findings, with reasons kept for audits.
+- Allowlist for reviewed findings, with reasons kept for audits; `nobet checks` lists the check IDs.
 - `nobet scan -on-change CMD`: runs a hook when a scan finds changes, with them as JSON on stdin and a short summary in the environment; `contrib/hooks/slack` posts to a Slack or Mattermost webhook.
 - Shared scan history: `-history-dir` or `NOBET_DATA_DIR`, with group-readable files in a directory an admin prepared for it.
 

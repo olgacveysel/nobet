@@ -15,7 +15,7 @@ On Windows without a Go toolchain, the WSL distro has one in `~/.local/goroot/bi
 ## Layout
 
 ```
-cmd/nobet/          CLI: main.go (dispatch, banner), targets.go (shared host flags), scan.go, rootmap.go, diff.go
+cmd/nobet/          CLI: main.go (dispatch, banner), targets.go (shared host flags), scan.go, rootmap.go, diff.go, checks.go, hook.go (-on-change)
 cmd/nobet-web/      read-only dashboard binary (flags, server, graceful shutdown; oidc.go: sign-in flags)
 internal/runner/    Runner interface and Result only (no dependencies)
 internal/transport/ Local (/bin/sh) and SSH runners (agent incl. Windows pipe, keys, strict known_hosts, ProxyJump chains)
@@ -50,7 +50,7 @@ docs/logo/          SVG logos, favicon
 - **Scripts must not hide unreadable data.** A script that ends in `true` succeeds even when nothing was readable; gate it on privilege or print a marker (see `nocache=` for dnf5). `Facts.SSHD` is nil when unreadable and an empty map when sshd is not installed (`NoSSHD`).
 - **sshd -T sees what is in effect.** Every `sshd -T` call passes the running daemon's `-o` options (`sshd_opts` in scripts.go): RHEL 8 hands its crypto policy to sshd on the command line, and without them `sshd -T` shows built-in defaults. Keep base and Match probes consistent, or every Match context differs in algorithms.
 - **sshd views.** `Facts.SSHD` is the config for an arbitrary account from TEST-NET-1; `SSHDMatch` holds per-account/per-address differences. Read sshd settings through `SSHDViews`/`LoginAllowed`, not `f.SSHD` directly, so Match blocks count.
-- **Never collect secrets.** The shadow collector prints only set/empty/locked; a test asserts no `$` reaches the output. Anything put into a generated script must be validated first (see `safeUser`, `safePath`).
+- **Never collect secrets.** The shadow collector prints only set/empty/locked; a test asserts no `$` reaches the output. Script contents never leave the host either: what a script runs or sources is extracted there by awk (pathsScript) and only paths come back. Anything put into a generated script must be validated first (see `safeUser`, `safePath`).
 - **Privilege gating.** Data that is only complete as root (other users' keys, sudo rights, firewall, SUID/world-writable) is skipped entirely without privilege rather than collected partially.
 - **Drift compares like with like.** Root/key changes only when both scans were privileged.
 - **Keep the history small.** Snapshots store Facts, so bulky raw listings stay out of JSON (`json:"-"`) and only their result is kept: `RootJobs`/`Paths`/`Links` (hundreds of entries per host) are dropped, `RootWritable` (usually empty) is stored.
@@ -93,5 +93,5 @@ Decided by the maintainer on 2026-10-14:
 
 - v0.1.0: test on real servers (firewalls, /boot kernels and real package states never appear in the container lab), fix what turns up, then tag v0.1.0. v0.1.0-beta.3 (2026-10-20) went through the whole release workflow: signed checksums, SBOMs, and signed public multi-arch images on GHCR (cosign verify passes). beta.2 failed at setup (cosign-installer has no floating v4 tag; pinned to v4.1.2).
 - Candidates: CIS Benchmark IDs in the HTML report (only with a verified mapping)
-- FS-003 follow-up: files a script sources or runs in turn (interpreters, root's PATH directories and `+`/`!` Exec commands are covered since 2026-10-21)
-- sysctl hardening and "accounts with keys unused for months" need real VMs to get defaults and login records right (containers show the host kernel's sysctls and no login history); do them with real-server testing
+- KRN-001 only checks sysctls whose defaults are safe everywhere (verified from the distributions' sysctl.d files on 2026-10-21; ptrace_scope, kptr_restrict and dmesg_restrict differ, e.g. RHEL ships ptrace_scope 0). Widen it only after checking real servers.
+- "Accounts with keys unused for months" needs real servers (login records: lastlog is going away, wtmp rotates); do it with real-server testing

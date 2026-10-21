@@ -91,6 +91,7 @@ func TestWriterText(t *testing.T) {
 
 func TestWritablePaths(t *testing.T) {
 	f := writersFacts()
+	f.Calls = map[string][]string{"/usr/bin/ok": {"/opt/open.sh", "/usr/bin/odd"}}
 	f.RootJobs = []RootJob{
 		{Kind: "cron", Source: "/etc/cron.d/app", Paths: []string{"/usr/bin/ok", "/opt/app/run.sh"}},
 		{Kind: "sudo", Source: "sudo rule for alice", Paths: []string{"/opt/ops/sync"}},
@@ -98,6 +99,8 @@ func TestWritablePaths(t *testing.T) {
 		{Kind: "path", Source: "/etc/environment", Paths: []string{"/opt/ops"}}, // reported once
 	}
 	want := []WritablePath{
+		{Kind: "cron", Source: "/etc/cron.d/app", Path: "/opt/open.sh", CalledBy: "/usr/bin/ok", Writers: []Writer{{Everyone: true, Path: "/opt/open.sh", How: "world-writable"}}},
+		{Kind: "cron", Source: "/etc/cron.d/app", Path: "/usr/bin/odd", CalledBy: "/usr/bin/ok", Writers: []Writer{{Account: "uid 4242", Path: "/usr/bin/odd", How: "owner"}}},
 		{Kind: "cron", Source: "/etc/cron.d/app", Path: "/opt/app/run.sh", Writers: []Writer{{Account: "deploy", Path: "/opt/app", How: "owner"}}},
 		{Kind: "sudo", Source: "sudo rule for alice", Path: "/opt/ops/sync", Writers: []Writer{{Account: "alice", Path: "/opt/ops", How: "group ops"}}},
 		{Kind: "path", Source: "standard directories", Path: "/opt/ops", Writers: []Writer{{Account: "alice", Path: "/opt/ops", How: "group ops"}}},
@@ -131,17 +134,30 @@ func TestPathsScript(t *testing.T) {
 	must(os.WriteFile(filepath.Join(dir, "venv", "bin", "python"), []byte("\x7fELF"), 0o755))
 	job := filepath.Join(dir, "app", "job.py")
 	must(os.WriteFile(job, []byte("#!"+filepath.Join(dir, "venv", "bin", "python")+" -u\r\nprint(1)\n"), 0o755))
+	// A script that sources and calls other files by path.
+	cronJob := filepath.Join(dir, "app", "cron-job")
+	must(os.WriteFile(cronJob, []byte(strings.ReplaceAll(`#!/bin/sh
+# not this: /D/ignored
+. /D/lib/common.sh
+FOO=1 /D/bin/helper --x && echo done > /D/out.log
+if [ -x /D/bin/maybe ]; then /D/bin/maybe; fi
+bash -e /D/bin/step.sh
+python3 -u /D/tool.py
+cd /D; ./relative
+`, "/D", dir)), 0o755))
+	must(os.MkdirAll(filepath.Join(dir, "bin"), 0o755))
+	must(os.WriteFile(filepath.Join(dir, "bin", "helper"), []byte("#!/bin/sh\n"), 0o755))
 	envJob := filepath.Join(dir, "app", "env-job")
 	must(os.WriteFile(envJob, []byte("#!/usr/bin/env -S sh -e\necho hi\n"), 0o755))
 
 	run := filepath.Join(dir, "app", "bin", "run.sh")
 	viaDir := filepath.Join(dir, "applink", "bin", "run.sh")
-	paths := []string{run, filepath.Join(dir, "drop"), filepath.Join(dir, "link"), filepath.Join(dir, "missing"), viaDir, job, envJob}
+	paths := []string{run, filepath.Join(dir, "drop"), filepath.Join(dir, "link"), filepath.Join(dir, "missing"), viaDir, job, envJob, cronJob}
 	out, err := exec.Command("/bin/sh", "-c", pathsScript(paths)).Output()
 	if err != nil {
 		t.Fatal(err)
 	}
-	entries, links, interps := parsePaths(string(out))
+	entries, links, interps, calls := parsePaths(string(out))
 	if entries == nil {
 		t.Fatalf("incomplete output:\n%s", out)
 	}
@@ -173,6 +189,16 @@ func TestPathsScript(t *testing.T) {
 	}
 	if _, ok := entries[filepath.Join(dir, "venv")]; !ok {
 		t.Error("the interpreter's directories were not listed")
+	}
+	var want []string
+	for _, p := range []string{"/bin/helper", "/bin/maybe", "/bin/step.sh", "/lib/common.sh", "/tool.py"} {
+		want = append(want, dir+p)
+	}
+	if !reflect.DeepEqual(calls[cronJob], want) {
+		t.Errorf("calls = %q\nwant %q", calls[cronJob], want)
+	}
+	if _, ok := entries[filepath.Join(dir, "bin", "helper")]; !ok {
+		t.Error("the called files were not listed")
 	}
 }
 
@@ -215,6 +241,13 @@ func TestParseRootJobs(t *testing.T) {
 	}
 	if parseRootJobs("@@systemd\n@@failed\n@@end\n") != nil {
 		t.Error("a failed systemctl should count as incomplete")
+	}
+}
+
+func TestUseCalledBy(t *testing.T) {
+	w := WritablePath{Kind: "cron", Source: "/etc/cron.d/report", Path: "/opt/lib.sh", CalledBy: "/usr/local/sbin/report"}
+	if got := w.Use(); got != "run or sourced by /usr/local/sbin/report, which is used by root's cron (/etc/cron.d/report)" {
+		t.Errorf("Use() = %q", got)
 	}
 }
 

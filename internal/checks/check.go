@@ -92,8 +92,8 @@ func All() []Check {
 		sshWeakAlgorithms,
 		uidZeroAccounts,
 		sudoNoPassword,
-		sudoShellEscape,
 		rootGroupMembers,
+		sudoShellEscape,
 		emptyPasswords,
 		exposedListeners,
 		hostFirewall,
@@ -105,5 +105,6 @@ func All() []Check {
 		suidFiles,
 		worldWritable,
 		rootWritable,
+		kernelHardening,
 	}
 }

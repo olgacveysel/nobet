@@ -171,6 +171,7 @@ type Facts struct {
 	Updates         *Updates
 	Reboot          *Reboot
 	AutoUpdates     map[string]string // how automatic updates are set up (autoUpdatesScript keys); nil if unknown
+	Sysctl          map[string]string // kernel settings by sysctl name (kernel.randomize_va_space); nil if unknown
 	Firewall        *Firewall
 	SUID            []SUIDFile
 	Writable        []WritableEntry
@@ -182,6 +183,7 @@ type Facts struct {
 	Paths        map[string]PathEntry `json:"-"` // owner and mode of RootJobs' paths and the directories above them
 	Links        map[string]string    `json:"-"` // symlinks among those paths, to their targets
 	Interpreters map[string]string    `json:"-"` // scripts among those paths -> their #! interpreter
+	Calls        map[string][]string  `json:"-"` // scripts among those paths -> what they run or source by path
 	Errors       map[string]string    // collector name -> why it failed
 }
 
@@ -327,6 +329,16 @@ func Collect(r runner.Runner) *Facts {
 	if out, ok := run("reboot", script(rebootScript, false)); ok {
 		f.Reboot = parseReboot(out)
 	}
+	if out, ok := run("sysctl", script(sysctlScript, true)); ok {
+		if kv := parseKeyValues(out); kv == nil {
+			f.Errors["sysctl"] = "the listing stopped early"
+		} else {
+			f.Sysctl = map[string]string{}
+			for k, v := range kv {
+				f.Sysctl[strings.ReplaceAll(k, "/", ".")] = v
+			}
+		}
+	}
 	if out, ok := run("autoupdates", script(autoUpdatesScript, false)); ok {
 		if f.AutoUpdates = parseKeyValues(out); f.AutoUpdates == nil {
 			f.Errors["autoupdates"] = "the listing stopped early"
@@ -409,12 +421,12 @@ func (f *Facts) collectRootPaths(run func(name, body string) (string, bool)) {
 	if out, ok = run("root-paths", pathsScript(paths)); !ok {
 		return
 	}
-	entries, links, interps := parsePaths(out)
+	entries, links, interps, calls := parsePaths(out)
 	if entries == nil {
 		f.Errors["root-paths"] = "the file permission listing stopped early"
 		return
 	}
-	f.RootJobs, f.Paths, f.Links, f.Interpreters = jobs, entries, links, interps
+	f.RootJobs, f.Paths, f.Links, f.Interpreters, f.Calls = jobs, entries, links, interps, calls
 	f.RootWritable = f.writablePaths()
 	if truncated {
 		f.Errors["root-paths"] = fmt.Sprintf("only the first %d paths were checked", maxRootPaths)

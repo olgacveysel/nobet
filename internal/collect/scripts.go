@@ -163,6 +163,14 @@ fi
 echo end
 `
 
+// Prints the kernel settings KRN-001 checks as path=value under
+// /proc/sys, then "end". fs.protected_* are only readable by root.
+const sysctlScript = `for k in kernel/randomize_va_space fs/protected_symlinks fs/protected_hardlinks fs/suid_dumpable net/ipv4/tcp_syncookies net/ipv4/conf/all/accept_source_route; do
+  v=$(cat "/proc/sys/$k" 2>/dev/null) && echo "$k=$v"
+done
+echo end
+`
+
 const rebootScript = `echo "running=$(uname -r)"
 latest=$(ls -1 /boot/vmlinuz-* 2>/dev/null | sed 's|^/boot/vmlinuz-||' | grep -v rescue | sort -V | tail -n 1)
 echo "latest=$latest"
