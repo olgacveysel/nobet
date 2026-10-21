@@ -28,6 +28,9 @@ func TestShadowScript(t *testing.T) {
 		`gone:$6$salt$hash:19000:0:99999:7::1:`,       // expired in 1970
 		`future:$6$salt$hash:19000:0:99999:7::99999:`, // expires in 2243
 		`zero:$6$salt$hash:19000:0:99999:7::0:`,       // 0: treated as no expiry
+		`legacy:$1$salt$hash:19000:0:99999:7:::`,      // md5, from an old install
+		`web:$2b$12$saltsaltsalthashhash:19000::::::`, // bcrypt
+		`svc:$5$rounds=5000$salt$hash:19000::::::`,    // sha256
 	}, "\n") + "\n"
 	path := filepath.Join(t.TempDir(), "shadow")
 	if err := os.WriteFile(path, []byte(sample), 0o600); err != nil {
@@ -38,17 +41,20 @@ func TestShadowScript(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []ShadowEntry{
-		{User: "root", Password: PasswordSet},
-		{User: "admin", Password: PasswordSet},
-		{User: "old", Password: PasswordSet},
+		{User: "root", Password: PasswordSet, Hash: "yescrypt"},
+		{User: "admin", Password: PasswordSet, Hash: "sha512"},
+		{User: "old", Password: PasswordSet, Hash: "des"},
 		{User: "locked", Password: PasswordLocked},
 		{User: "never", Password: PasswordLocked},
 		{User: "system", Password: PasswordLocked},
 		{User: "centos", Password: PasswordLocked},
 		{User: "guest", Password: PasswordEmpty},
-		{User: "gone", Password: PasswordSet, Expired: true},
-		{User: "future", Password: PasswordSet},
-		{User: "zero", Password: PasswordSet},
+		{User: "gone", Password: PasswordSet, Expired: true, Hash: "sha512"},
+		{User: "future", Password: PasswordSet, Hash: "sha512"},
+		{User: "zero", Password: PasswordSet, Hash: "sha512"},
+		{User: "legacy", Password: PasswordSet, Hash: "md5"},
+		{User: "web", Password: PasswordSet, Hash: "bcrypt"},
+		{User: "svc", Password: PasswordSet, Hash: "sha256"},
 	}
 	got := parseShadow(string(out))
 	if !reflect.DeepEqual(got, want) {

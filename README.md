@@ -11,7 +11,7 @@
 
 *Nöbet* is Turkish for a watch or guard shift.
 
-> Status: early development (v0.1).
+> Status: early development (v0.2).
 
 ## Principles
 
@@ -278,13 +278,13 @@ docker compose up -d
 
 Optional files in `config/`: `allowlist`, `ssh_config` for aliases and `ProxyJump`, and an executable `on-change` hook (see [Alerts on changes](#alerts-on-changes); `contrib/hooks/slack` works in the scanner image). The scanner logs each scan (`docker compose logs scanner`); `NOBET_INTERVAL=once` scans once and exits. `config/` and `secrets/` are git-ignored.
 
-Compose runs the release images `ghcr.io/olgacveysel/nobet-scanner` and `ghcr.io/olgacveysel/nobet-web` (amd64 and arm64). Pin a version with `NOBET_VERSION=0.1.0` in a `.env` file next to `compose.yaml` (the default is `latest`, which only moves on releases, not pre-releases); `docker compose up -d --build` builds both from the checkout instead. The images are signed the same way as the downloads, and carry an SBOM and build provenance:
+Compose runs the release images `ghcr.io/olgacveysel/nobet-scanner` and `ghcr.io/olgacveysel/nobet-web` (amd64 and arm64). Pin a version with `NOBET_VERSION=0.2.0` in a `.env` file next to `compose.yaml` (the default is `latest`, which only moves on releases, not pre-releases); `docker compose up -d --build` builds both from the checkout instead. The images are signed the same way as the downloads, and carry an SBOM and build provenance:
 
 ```bash
 cosign verify ghcr.io/olgacveysel/nobet-web:0.1.0 \
   --certificate-identity-regexp '^https://github\.com/olgacveysel/nobet/\.github/workflows/release\.yml@refs/(tags/v|heads/master$)' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
-docker buildx imagetools inspect ghcr.io/olgacveysel/nobet-web:0.1.0 --format '{{ json .SBOM }}'
+docker buildx imagetools inspect ghcr.io/olgacveysel/nobet-web:0.2.0 --format '{{ json .SBOM }}'
 ```
 
 ### Scale
@@ -305,6 +305,7 @@ Measured with 50 hosts (the size nöbet is built for): a full scan takes about 1
 | ACC-003 | High            | Members of root-equivalent groups (docker, lxd, incus) |
 | ACC-004 | High            | Limited sudo rules that still give a root shell or root file writes (editors, pagers, interpreters, `find`, `tee`… see GTFOBins) |
 | ACC-005 | Critical / High | Accounts with an empty password that can log in; Critical when the account can become root |
+| ACC-007 | Medium / Low    | Passwords stored as DES or MD5 hashes, which a leaked `/etc/shadow` gives away quickly; Medium when the account can become root. Only the algorithm's name is read |
 | ACC-006 | Medium / Low    | Authorized SSH keys that have not logged in for 90 days, from sshd's log messages (see below); Medium when the key reaches an account that can become root |
 | LOG-001 | Medium / Low    | Login records not kept for 90 days: Medium when sshd logs no logins (`LogLevel`), nothing keeps its messages, or they only live in a journal in memory; Low when they go back less than 90 days on a system that is older than that |
 | NET-001 | Critical / High / Info | The Docker API without TLS (port 2375) on any non-loopback address (Critical: root for anyone who can connect); databases and admin APIs listening on all interfaces, or published there by a container (named in the finding; also with Docker's `userland-proxy` off, when no socket listens) |
@@ -400,6 +401,7 @@ UPD-004 knows Ubuntu, Debian (including its free LTS period) and Raspbian, RHEL,
 - [x] Containers that can take over the host (CTR-001): Docker and podman
 - [x] Private keys other accounts can read (FS-004), marked in the root access map
 - [x] Login records kept for 90 days (LOG-001)
+- [x] Weak password hashes (ACC-007)
 
 ## Project layout
 

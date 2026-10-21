@@ -95,6 +95,7 @@ func All() []Check {
 		rootGroupMembers,
 		sudoShellEscape,
 		emptyPasswords,
+		weakPasswordHashes,
 		unusedKeys,
 		loginRecords,
 		exposedListeners,

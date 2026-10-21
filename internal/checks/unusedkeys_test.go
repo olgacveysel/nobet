@@ -99,3 +99,32 @@ func TestUnusedKeys(t *testing.T) {
 		t.Errorf("unprivileged: %q", skip)
 	}
 }
+
+func TestWeakPasswordHashes(t *testing.T) {
+	f := &collect.Facts{
+		IsRoot: true,
+		Errors: map[string]string{},
+		Passwd: []collect.PasswdEntry{{Name: "root", UID: 0}, {Name: "legacy", UID: 1000}, {Name: "app", UID: 1001}},
+		Shadow: []collect.ShadowEntry{
+			{User: "root", Password: collect.PasswordSet, Hash: "md5"},
+			{User: "legacy", Password: collect.PasswordSet, Hash: "des"},
+			{User: "app", Password: collect.PasswordSet, Hash: "yescrypt"},
+			{User: "gone", Password: collect.PasswordSet, Hash: "des", Expired: true}, // cannot log in
+			{User: "nologin", Password: collect.PasswordLocked},
+		},
+	}
+	got, skip := weakPasswordHashes.Run(f)
+	if skip != "" || len(got) != 2 {
+		t.Fatalf("got %+v (skip %q)", got, skip)
+	}
+	if got[0].Severity != Medium || got[0].Detail[:10] != "root (MD5)" || got[1].Severity != Low || !strings.HasPrefix(got[1].Detail, "legacy (DES);") {
+		t.Errorf("findings: %+v", got)
+	}
+	f.Shadow = []collect.ShadowEntry{{User: "app", Password: collect.PasswordSet, Hash: "sha512"}}
+	if got, skip := weakPasswordHashes.Run(f); len(got) != 0 || skip != "" {
+		t.Errorf("strong hashes: %+v %q", got, skip)
+	}
+	if _, skip := weakPasswordHashes.Run(&collect.Facts{Errors: map[string]string{}}); !strings.Contains(skip, "needs root") {
+		t.Errorf("unprivileged: %q", skip)
+	}
+}

@@ -223,7 +223,20 @@ awk -F: -v today="$today" '{
   else if (p ~ /^\$[^$]+\$/ || (length(p) == 13 && p ~ /^[.\/0-9A-Za-z]+$/)) s = "set"
   else s = "locked"
   e = ($8 != "" && $8 + 0 > 0 && $8 + 0 <= today) ? 1 : 0
-  print $1, s, e
+  # The hash algorithm, by name: the hash itself never leaves the host.
+  a = "-"
+  if (s == "set") {
+    if (p ~ /^\$1\$/) a = "md5"
+    else if (p ~ /^\$2[abxy]?\$/) a = "bcrypt"
+    else if (p ~ /^\$5\$/) a = "sha256"
+    else if (p ~ /^\$6\$/) a = "sha512"
+    else if (p ~ /^\$y\$/) a = "yescrypt"
+    else if (p ~ /^\$gy\$/) a = "gost-yescrypt"
+    else if (p ~ /^\$7\$/) a = "scrypt"
+    else if (p ~ /^\$/) a = "other"
+    else a = "des"
+  }
+  print $1, s, e, a
 }' /etc/shadow
 `
 

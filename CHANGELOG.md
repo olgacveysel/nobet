@@ -1,20 +1,39 @@
 # Changelog
 
-## Unreleased
+## v0.2.0 — 2026-10-21
 
+Access that outlives its reason, and gaps nobody looks at: SSH keys nobody uses, private keys others can read, containers that are root on their host, published ports the firewall never sees, and login records that run out too soon. Plus reports from saved scans and a view per check for the team.
+
+**New checks**
 - ACC-006: authorized SSH keys that have not logged in for 90 days, from sshd's "Accepted publickey" messages in the journal and the syslog files (rotated and gzipped ones too); Medium when the key reaches an account that can become root. Only journal entries from root's sshd are trusted, so no local account can make a key look used there. When the logs do not reach back 90 days, the check says how far they go instead of guessing.
+- ACC-007: passwords stored as DES or MD5 hashes (Medium for accounts that can become root). The shadow collector now names each set password's algorithm; the hash still never leaves the host.
 - LOG-001: login records not kept for 90 days. Medium when sshd logs no logins, nothing keeps its messages, or only a journal in memory does; Low when they go back less than 90 days on a system older than that (judged by the root file system, `/etc/machine-id` and the basesystem package, so new servers and fresh cloud VMs are left alone).
-- FS-004: private keys other accounts can read (accounts' SSH keys, sshd's host keys, TLS keys), following the permissions of every directory above them. Critical when every account can read a key that logs in to a root-capable account on the host. The root access map marks keys whose private half is readable somewhere, with the host and path. Key material never leaves the host.
-- Local scans run each command without a controlling terminal, in a process group of its own: nothing can stop to prompt on the terminal nobet was started from, and a timeout now also stops what the command started.
-- Ports published by containers count in NET-001 (which names the container, and also sees them with Docker's `userland-proxy` off), and NET-002 reports an active firewall that Docker's published ports go around: ufw, firewalld and INPUT rules never see them, unless `DOCKER-USER` filters them. Checked with real traffic: with ufw denying everything but SSH, a published port still answered.
+- FS-004: private keys other accounts can read (accounts' SSH keys, sshd's host keys, TLS keys), following the permissions of every directory above them. Critical when every account can read a key that logs in to a root-capable account on the host. Key material never leaves the host.
 - CTR-001: running Docker and podman containers that can take over the host: privileged, a control socket mounted (Docker, podman, containerd, CRI-O, systemd, D-Bus; read-only or through `/run` or `/` too, if the socket exists), host paths root runs mounted writable, escape capabilities, raw disks (High); the host's PID namespace or its password hashes and SSH keys readable (Medium); no seccomp or AppArmor (Low). The containers' environment never leaves the host.
-- The root access map (text, TUI, HTML, PDF and the dashboard) shows when each key last logged in as each account.
-- FS-003 no longer reports masked systemd services: their unit file is a link to /dev/null, which anyone can write to, but systemd never starts them.
+- Ports published by containers count in NET-001 (which names the container, and also sees them with Docker's `userland-proxy` off), and NET-002 reports an active firewall that Docker's published ports go around: ufw, firewalld and INPUT rules never see them, unless `DOCKER-USER` filters them. Checked with real traffic: with ufw denying everything but SSH, a published port still answered.
+
+**Root access map**
+- Shows when each key last logged in as each account (text, TUI, HTML, PDF and the dashboard).
+- Marks keys whose private half other accounts can read somewhere, with the host and path (FS-004): they get every route to root the key has, on every host.
+
+**Reports, history and dashboard**
 - `nobet report -pdf FILE` (and/or `-html FILE`): the reports from the saved history, without scanning, from each host's newest successful scan; `-host` narrows it. For a weekly report from cron.
 - `nobet diff -since 7d` (`2w`, `36h`): what changed since each host's newest scan from before then, rather than since the previous scan.
 - nobet-web: "Findings by check" on the fleet page, and a page per check (`/check/SSH-001`) with every host it fires on, where it is allowlisted and why, and where it could not run; check IDs on host pages link to it.
-- Binaries built with `go install …@v0.1.0` report their version (`nobet 0.1.0`) instead of `dev`.
-- Release workflow: builds the tag it was started for even when two tags share a commit (v0.1.0-rc1 and v0.1.0 did, and the first v0.1.0 run picked rc1), and can rebuild an existing tag's release by hand (`gh workflow run release -f tag=vX.Y.Z`). Such runs are signed as `release.yml@refs/heads/master`; the verify commands in the README accept both. A run for a tag that is already released stops at the start instead of failing after the build.
+
+**Fixes**
+- FS-003 no longer reports masked systemd services: their unit file is a link to /dev/null, which anyone can write to, but systemd never starts them.
+- Local scans run each command without a controlling terminal, in a process group of its own: nothing can stop to prompt on the terminal nobet was started from, and a timeout now also stops what the command started.
+- Binaries built with `go install …@v0.2.0` report their version instead of `dev`.
+- The PDF report's subtitle wraps instead of running off the page.
+
+**Releases**
+- The release workflow builds the tag it was started for even when two tags share a commit (v0.1.0-rc1 and v0.1.0 did), and can rebuild an existing tag's release by hand (`gh workflow run release -f tag=vX.Y.Z`). Such runs are signed as `release.yml@refs/heads/master`; the verify commands in the README accept both. A run for a tag that is already released stops at the start instead of failing after the build.
+
+**Upgrading**
+- Nothing to change: the new checks run on the next scan. Allowlist what you have reviewed, by container name (`CTR-001 * traefik`) or key fingerprint (`ACC-006 * SHA256:...`).
+- ACC-006, ACC-007, LOG-001, FS-004 and CTR-001 need root or passwordless sudo on the host, like the other checks that read other accounts' files.
+- 100 saved scans of 50 hosts take about 80 MB (75 MB before); the container list is not stored.
 
 ## v0.1.0 — 2026-10-21
 

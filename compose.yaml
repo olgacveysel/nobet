@@ -17,7 +17,7 @@
 #   open http://127.0.0.1:8080
 #
 # Images: the signed release images from ghcr.io, pinned with NOBET_VERSION
-# (for example NOBET_VERSION=0.1.0 in a .env file next to this one; the
+# (for example NOBET_VERSION=0.2.0 in a .env file next to this one; the
 # default is latest). `docker compose up -d --build` builds them from this
 # checkout instead, and Compose also builds when the image cannot be pulled.
 name: nobet

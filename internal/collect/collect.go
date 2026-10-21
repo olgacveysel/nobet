@@ -88,6 +88,7 @@ type ShadowEntry struct {
 	User     string `json:"user"`
 	Password string `json:"password"` // PasswordSet, PasswordEmpty or PasswordLocked
 	Expired  bool   `json:"expired,omitempty"`
+	Hash     string `json:"hash,omitempty"` // a set password's algorithm: des, md5, bcrypt, sha256, sha512, yescrypt, ...
 }
 
 // SecurityUpdate is one pending security update or advisory.
@@ -561,12 +562,16 @@ func parseShadow(s string) []ShadowEntry {
 	out := []ShadowEntry{}
 	for _, line := range lines(s) {
 		f := strings.Fields(line)
-		if len(f) != 3 {
+		if len(f) != 3 && len(f) != 4 {
 			continue
 		}
 		switch f[1] {
 		case PasswordSet, PasswordEmpty, PasswordLocked:
-			out = append(out, ShadowEntry{User: f[0], Password: f[1], Expired: f[2] == "1"})
+			e := ShadowEntry{User: f[0], Password: f[1], Expired: f[2] == "1"}
+			if len(f) == 4 && f[1] == PasswordSet {
+				e.Hash = f[3]
+			}
+			out = append(out, e)
 		}
 	}
 	return out

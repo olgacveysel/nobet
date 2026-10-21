@@ -327,6 +327,53 @@ var unusedKeys = Check{
 	},
 }
 
+// weakHashes are password hash algorithms that a leaked /etc/shadow gives
+// away quickly: DES in minutes, md5crypt in hours or days.
+var weakHashes = map[string]string{"des": "DES", "md5": "MD5"}
+
+var weakPasswordHashes = Check{
+	ID:    "ACC-007",
+	Title: "Passwords stored with weak hashes",
+	Run: func(f *collect.Facts) ([]Finding, string) {
+		if f.Shadow == nil {
+			return nil, unavailable(f, "shadow", "password states")
+		}
+		var rootCapable, others []string
+		for _, s := range f.Shadow {
+			name, weak := weakHashes[s.Hash]
+			if s.Password != collect.PasswordSet || s.Expired || !weak {
+				continue
+			}
+			if canBecomeRoot(f, s.User) {
+				rootCapable = append(rootCapable, s.User+" ("+name+")")
+			} else {
+				others = append(others, s.User+" ("+name+")")
+			}
+		}
+		const fix = "Set ENCRYPT_METHOD SHA512 or YESCRYPT in /etc/login.defs (and in pam_unix's options where PAM sets it), then have these accounts choose a new password: passwd -e <user> asks at the next login"
+		var out []Finding
+		if len(rootCapable) > 0 {
+			out = append(out, Finding{
+				CheckID:  "ACC-007",
+				Severity: Medium,
+				Title:    "Root-capable accounts have passwords stored with weak hashes",
+				Detail:   summarize(rootCapable, 6) + "; if /etc/shadow or a backup of it leaks, these passwords can be cracked",
+				Fix:      fix,
+			})
+		}
+		if len(others) > 0 {
+			out = append(out, Finding{
+				CheckID:  "ACC-007",
+				Severity: Low,
+				Title:    "Accounts have passwords stored with weak hashes",
+				Detail:   summarize(others, 6) + "; if /etc/shadow or a backup of it leaks, these passwords can be cracked",
+				Fix:      fix,
+			})
+		}
+		return out, ""
+	},
+}
+
 // loginShell reports whether a shell lets the account log in or su.
 func loginShell(shell string) bool {
 	return shell != "" && !strings.HasSuffix(shell, "/nologin") && !strings.HasSuffix(shell, "/false")
