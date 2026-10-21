@@ -306,6 +306,7 @@ Measured with 50 hosts (the size nöbet is built for): a full scan takes about 1
 | ACC-004 | High            | Limited sudo rules that still give a root shell or root file writes (editors, pagers, interpreters, `find`, `tee`… see GTFOBins) |
 | ACC-005 | Critical / High | Accounts with an empty password that can log in; Critical when the account can become root |
 | ACC-006 | Medium / Low    | Authorized SSH keys that have not logged in for 90 days, from sshd's log messages (see below); Medium when the key reaches an account that can become root |
+| LOG-001 | Medium / Low    | Login records not kept for 90 days: Medium when sshd logs no logins (`LogLevel`), nothing keeps its messages, or they only live in a journal in memory; Low when they go back less than 90 days on a system that is older than that |
 | NET-001 | Critical / High / Info | The Docker API without TLS (port 2375) on any non-loopback address (Critical: root for anyone who can connect); databases and admin APIs listening on all interfaces, or published there by a container (named in the finding; also with Docker's `userland-proxy` off, when no socket listens) |
 | NET-002 | Medium / Low    | No host firewall filtering incoming traffic (ufw, firewalld, nftables, iptables); Medium when services are exposed. Low when a firewall is active but Docker publishes ports past it (see below) |
 | CTR-001 | High / Medium / Low | Running Docker or podman containers that can take over the host: privileged, a control socket mounted (Docker, podman, containerd, systemd, D-Bus), host paths root runs writable (`/etc/cron.d`, `/usr`, `/`…), escape capabilities (`SYS_ADMIN`, `SYS_MODULE`…), raw disks; Medium for the host's PID namespace or read access to `/etc/shadow`, SSH keys; Low without seccomp or AppArmor |
@@ -329,6 +330,8 @@ FS-003 follows what root runs: root's cron jobs (`/etc/crontab`, `/etc/cron.d`, 
 Ports that Docker publishes (`-p 8080:80`) are reachable from the network even when ufw (or firewalld, or INPUT rules of your own) denies them: Docker forwards them to the container in its own NAT rules, before the firewall's input rules see them. NET-002 lists them when a firewall is active and Docker's `DOCKER-USER` chain, where such ports can be filtered, is empty; a database among them is a High NET-001 finding. Publish ports that need not be public on `127.0.0.1` (`-p 127.0.0.1:8080:80`), or filter them in `DOCKER-USER`.
 
 CTR-001 reads root's running containers with `docker inspect` and `podman inspect`, naming the fields it needs, so the containers' environment (often holding passwords) never leaves the host. A control socket counts whether it is mounted read-only or not, and whether the socket itself or a directory above it (`/run`, `/var/run`, `/`) is mounted; only sockets that exist on the host count. Monitoring agents and reverse proxies often need the Docker socket: give them a socket proxy that allows only the calls they need, or allowlist them by container name (`CTR-001 * traefik`). podman is only asked where it has been used before, since `podman ps` on a fresh install would set up its storage.
+
+LOG-001 uses the same messages to tell whether you could find out, after the fact, who logged in: they should reach back 90 days. Short logs are only reported on a system older than they are (from the root file system's creation, `/etc/machine-id`, which a cloud VM writes at its first boot, or the `basesystem` package), so a new server does not get the finding; when the age cannot be told, the check says so.
 
 ACC-006 reads sshd's "Accepted publickey" messages, which name the key, from the journal and from `/var/log/auth.log`, `secure` and `messages` (rotated and gzipped copies included); only times, account names and key fingerprints leave the host. A key line counts as used when any account that reads that file logged in with it. It needs logs that reach back 90 days; when some key has no recent login and the logs are shorter (RHEL keeps its journal in memory and four weeks of `/var/log/secure` by default), the check is skipped and says how far back they go. A persistent journal (`mkdir -p /var/log/journal`) fixes that. Keys kept for emergencies can be allowlisted by fingerprint. The root access map shows each key's last login too.
 
@@ -396,6 +399,7 @@ UPD-004 knows Ubuntu, Debian (including its free LTS period) and Raspbian, RHEL,
 - [x] SSH keys that have not logged in for 90 days (ACC-006), and each key's last login in the root access map
 - [x] Containers that can take over the host (CTR-001): Docker and podman
 - [x] Private keys other accounts can read (FS-004), marked in the root access map
+- [x] Login records kept for 90 days (LOG-001)
 
 ## Project layout
 

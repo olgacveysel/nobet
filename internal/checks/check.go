@@ -96,6 +96,7 @@ func All() []Check {
 		sudoShellEscape,
 		emptyPasswords,
 		unusedKeys,
+		loginRecords,
 		exposedListeners,
 		hostFirewall,
 		containerEscape,

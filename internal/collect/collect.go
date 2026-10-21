@@ -171,6 +171,7 @@ type Facts struct {
 	Shadow          []ShadowEntry // password states, root only
 	AuthKeys        []AuthKey
 	KeyLogins       *KeyLogins   // when keys last logged in, from sshd's log messages; root only
+	LogStore        *LogStore    // where the journal is kept and how old the system is
 	Containers      []Container  // running Docker and podman containers; root only
 	ControlSockets  []string     // which of ControlSockets exist, read with Containers
 	PrivateKeys     []PrivateKey // private keys other accounts can read; root only
@@ -344,6 +345,11 @@ func Collect(r runner.Runner) *Facts {
 			for k, v := range kv {
 				f.Sysctl[strings.ReplaceAll(k, "/", ".")] = v
 			}
+		}
+	}
+	if out, ok := run("logstore", script(logStoreScript, true)); ok {
+		if f.LogStore = parseLogStore(out); f.LogStore == nil {
+			f.Errors["logstore"] = "the listing stopped early"
 		}
 	}
 	if out, ok := run("autoupdates", script(autoUpdatesScript, false)); ok {
