@@ -16,11 +16,12 @@ func TestLogStoreScript(t *testing.T) {
 	}
 	dir := t.TempDir()
 	disk, mem := filepath.Join(dir, "var/log/journal/0123"), filepath.Join(dir, "run/log/journal/0123")
-	// A machine-id written a minute ago, as on a cloud VM's first boot: it
-	// is later than the root file system's creation, so it counts.
+	// A machine-id written after the root file system was created, as on a
+	// cloud VM's first boot, so it counts. An hour ahead, because a fresh
+	// container's file system can be seconds old.
 	machineID := filepath.Join(dir, "machine-id")
 	os.WriteFile(machineID, []byte("0123\n"), 0o444)
-	firstBoot := time.Now().Add(-time.Minute).Truncate(time.Second)
+	firstBoot := time.Now().Add(time.Hour).Truncate(time.Second)
 	os.Chtimes(machineID, firstBoot, firstBoot)
 	run := func() *LogStore {
 		t.Helper()
@@ -58,7 +59,7 @@ func TestLogStoreScript(t *testing.T) {
 		t.Errorf("on disk: %+v", ls)
 	}
 	// This machine's own boot time; the latest install date wins.
-	if now := time.Now(); ls.Booted.IsZero() || ls.Booted.After(now) || !ls.Born.Equal(firstBoot) {
+	if ls.Booted.IsZero() || ls.Booted.After(time.Now()) || !ls.Born.Equal(firstBoot) {
 		t.Errorf("times: %+v, want born %v", ls, firstBoot)
 	}
 }

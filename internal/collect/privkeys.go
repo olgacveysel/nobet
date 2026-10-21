@@ -23,19 +23,40 @@ type PrivateKey struct {
 	Readers     []string `json:"readers,omitempty"`     // accounts besides root and the owner that can read it
 }
 
-// privateKeysScript finds private keys in every account's ~/.ssh, sshd's
+// privateKeysScript finds private keys in every account's ~/.ssh, the keys
+// ssh configurations name (IdentityFile, wherever they are: a backup job's
+// key in /etc/backup), ~/.ssh of applications under /opt and /srv, sshd's
 // host keys and the usual TLS key directories, and prints the owner and
 // mode of each and of every directory above it.
-const privateKeysScript = `cands() {
-  awk -F: '$6 ~ /^\/./ { print $6 }' /etc/passwd | sort -u | while IFS= read -r h; do
-    for f in "$h"/.ssh/*; do echo "ssh|$f"; done
+const privateKeysScript = `# The IdentityFile values in ssh config $1, expanded for account $2 with
+# home $3 (none for the system-wide files, where ~ and %d mean everyone).
+idfiles() {
+  awk '{ l = $0; sub(/^[ \t]+/, "", l)
+    if (tolower(substr(l, 1, 12)) != "identityfile") next
+    v = substr(l, 13); sub(/^[ \t]*=?[ \t]*/, "", v); sub(/[ \t]+$/, "", v); gsub(/"/, "", v)
+    print v }' "$1" 2>/dev/null | while IFS= read -r v; do
+    if [ -n "$3" ]; then
+      case $v in "~/"*) v="$3/${v#??}" ;; esac
+      v=$(echo "$v" | sed "s|%d|$3|g; s|%u|$2|g")
+    fi
+    case $v in /*) case $v in *%* | *'~'*) ;; *) echo "ssh|$v" ;; esac ;; esac
   done
+}
+cands() {
+  awk -F: '$6 ~ /^\/./ { print $1 ":" $6 }' /etc/passwd | sort -t: -k2,2 -u | while IFS=: read -r u h; do
+    for f in "$h"/.ssh/*; do echo "ssh|$f"; done
+    [ -f "$h/.ssh/config" ] && idfiles "$h/.ssh/config" "$u" "$h"
+  done
+  for c in /etc/ssh/ssh_config /etc/ssh/ssh_config.d/*.conf; do
+    [ -f "$c" ] && idfiles "$c"
+  done
+  for f in /opt/*/.ssh/* /srv/*/.ssh/*; do echo "ssh|$f"; done
   for f in /etc/ssh/ssh_host_*_key; do echo "host|$f"; done
   for f in /etc/ssl/private/* /etc/pki/tls/private/* /etc/letsencrypt/archive/*/privkey*.pem; do echo "tls|$f"; done
 }
 # Key lines go to stdout (4); each key's path and the directories above it
 # go through 3 to stat.
-{ cands | head -n 2000 | while IFS='|' read -r kind f; do
+{ cands | LC_ALL=C sort -u | head -n 2000 | while IFS='|' read -r kind f; do
   case $f in *.pub | */known_hosts* | */authorized_keys* | */config | *'*'*) continue ;; esac
   [ -f "$f" ] && [ ! -L "$f" ] || continue
   first=$(head -c 100 "$f" 2>/dev/null | head -n 1)
@@ -86,6 +107,7 @@ func (f *Facts) parsePrivateKeys(s string) []PrivateKey {
 			out = append(out, pk)
 		}
 	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
 	return out
 }
 
@@ -148,7 +170,7 @@ func (f *Facts) keyReaders(k privateKey, entries map[string]PathEntry) (PrivateK
 	}
 	// An account's key in another account's ~/.ssh: the file's owner can
 	// read a key that is not theirs.
-	if k.kind == "ssh" && st.UID != 0 {
+	if k.kind == "ssh" && st.UID != 0 && path.Base(path.Dir(k.path)) == ".ssh" {
 		home := path.Dir(path.Dir(k.path))
 		for _, e := range f.Passwd {
 			if e.Home == home && e.UID != st.UID && !contains(pk.Readers, pk.Owner) {

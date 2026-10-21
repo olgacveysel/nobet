@@ -54,7 +54,8 @@ func TestPrivateKeysScript(t *testing.T) {
 		os.Chmod(p, mode)
 	}
 	home := func(name string) string { return filepath.Join(dir, "home", name) }
-	for _, d := range []string{dir + "/home", dir + "/etc", dir + "/etc/ssh", dir + "/etc/ssl", dir + "/etc/ssl/private"} {
+	for _, d := range []string{dir + "/home", dir + "/etc", dir + "/etc/ssh", dir + "/etc/ssl", dir + "/etc/ssl/private",
+		dir + "/etc/backup", dir + "/opt", dir + "/opt/app", dir + "/opt/app/.ssh"} {
 		mkdir(d, 0o755)
 	}
 	mkdir(home("alice"), 0o755)
@@ -75,6 +76,17 @@ func TestPrivateKeysScript(t *testing.T) {
 	os.Chmod(dir+"/etc/ssl/private/site.key", 0o644)
 	bodies = append(bodies, "MIIFHDBOBgkqhkiG9w0BBQ0wQTApBgkq")
 
+	// Keys outside ~/.ssh that ssh configurations name, and an application's
+	// deploy key under /opt. A key a config names twice, or that the
+	// ~/.ssh listing finds too, counts once.
+	backupFP := newKey(dir+"/etc/backup/id_backup", "backup", 0o644, false)
+	os.WriteFile(dir+"/etc/ssh/ssh_config", []byte("Host backup.example.com\n    IdentityFile "+dir+"/etc/backup/id_backup\nHost *\n    IdentityFile ~/.ssh/id_rsa\n"), 0o644)
+	mkdir(home("alice")+"/keys", 0o755)
+	deployFP := newKey(home("alice")+"/keys/deploy", "", 0o644, true)
+	secondFP := newKey(home("alice")+"/keys/second", "", 0o644, false)
+	os.WriteFile(home("alice")+"/.ssh/config", []byte("Host git\n  IdentityFile ~/keys/deploy\n  identityfile=\"%d/keys/second\"\nHost other\n  IdentityFile ~/.ssh/id_ed25519\n  IdentityFile %d/keys/deploy\n"), 0o644)
+	appFP := newKey(dir+"/opt/app/.ssh/deploy_key", "", 0o644, false)
+
 	// Every file belongs to the test's own uid and gid. The accounts have
 	// other primary groups, so staff (the files' group) has only eve in it.
 	uid, gid := os.Getuid(), os.Getgid()
@@ -84,7 +96,8 @@ func TestPrivateKeysScript(t *testing.T) {
 	}
 	os.WriteFile(dir+"/etc/passwd", []byte(passwd), 0o644)
 
-	out, err := exec.Command("/bin/sh", "-c", strings.ReplaceAll(privateKeysScript, "/etc/", dir+"/etc/")).Output()
+	script := strings.NewReplacer("/etc/", dir+"/etc/", "/opt/", dir+"/opt/", "/srv/", dir+"/srv/").Replace(privateKeysScript)
+	out, err := exec.Command("/bin/sh", "-c", script).Output()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,11 +112,15 @@ func TestPrivateKeysScript(t *testing.T) {
 		Groups: []GroupEntry{{Name: "staff", GID: gid, Members: []string{"eve"}}},
 	}
 	got := f.parsePrivateKeys(string(out))
-	want := []PrivateKey{
-		{Path: home("alice") + "/.ssh/id_ed25519", Kind: "ssh", Format: "OPENSSH", Fingerprint: aliceFP, Owner: "alice", Everyone: true},
-		{Path: home("dave") + "/.ssh/id_ed25519", Kind: "ssh", Format: "OPENSSH", Fingerprint: daveFP, Owner: "alice", Group: "staff", Readers: []string{"eve"}},
+	want := []PrivateKey{ // by path
+		{Path: dir + "/etc/backup/id_backup", Kind: "ssh", Format: "OPENSSH", Fingerprint: backupFP, Owner: "alice", Everyone: true},
 		{Path: dir + "/etc/ssh/ssh_host_ed25519_key", Kind: "host", Format: "OPENSSH", Fingerprint: hostFP, Owner: "alice", Everyone: true},
 		{Path: dir + "/etc/ssl/private/site.key", Kind: "tls", Format: "ENCRYPTED", Owner: "alice", Everyone: true},
+		{Path: home("alice") + "/.ssh/id_ed25519", Kind: "ssh", Format: "OPENSSH", Fingerprint: aliceFP, Owner: "alice", Everyone: true},
+		{Path: home("alice") + "/keys/deploy", Kind: "ssh", Format: "OPENSSH", Fingerprint: deployFP, Owner: "alice", Everyone: true},
+		{Path: home("alice") + "/keys/second", Kind: "ssh", Format: "OPENSSH", Fingerprint: secondFP, Owner: "alice", Everyone: true},
+		{Path: home("dave") + "/.ssh/id_ed25519", Kind: "ssh", Format: "OPENSSH", Fingerprint: daveFP, Owner: "alice", Group: "staff", Readers: []string{"eve"}},
+		{Path: dir + "/opt/app/.ssh/deploy_key", Kind: "ssh", Format: "OPENSSH", Fingerprint: appFP, Owner: "alice", Everyone: true},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got  %+v\nwant %+v\noutput:\n%s", got, want, out)

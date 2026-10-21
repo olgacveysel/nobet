@@ -84,6 +84,31 @@ jobs:
       - run: docker buildx build --target web --load -t nobet-web:ci .
       - run: docker run --rm nobet-web:ci -version
 
+  # The collector scripts run under whatever sh and awk a host has: busybox
+  # on Alpine, gawk on RHEL and its rebuilds (Ubuntu's mawk is the test
+  # job's). Their tests run the real scripts, so run them there too, as an
+  # ordinary account like a developer's `go test`.
+  scripts:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - image: alpine:3.22
+            setup: apk add -q openssh-keygen && adduser -D tester
+          - image: almalinux:9
+            setup: dnf -y -q install openssh-clients && useradd tester
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: stable
+          check-latest: true
+      - run: CGO_ENABLED=0 go test -c -o collect.test ./internal/collect
+      - name: collect tests on ${{ matrix.image }}
+        run: >-
+          docker run --rm -v "$PWD/collect.test:/collect.test:ro" ${{ matrix.image }}
+          sh -c '{ ${{ matrix.setup }}; } >/dev/null && cd /tmp && su tester -s /bin/sh -c /collect.test'
+
   # nobet scans Linux hosts but often runs from admin laptops; the ssh-agent
   # named pipe and path handling only exist on Windows.
   test-windows:
