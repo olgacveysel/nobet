@@ -9,6 +9,7 @@
 {{range .Keys}}
 <section class="key">
   <div class="fp">{{if .Owner}}<b>{{.Owner}}</b> · {{else if $.Map.OwnersFile}}<span class="unclaimed">no known owner</span> · {{end}}<code>{{.Fingerprint}}</code> · {{.Type}}{{range .Comments}} · {{.}}{{end}}</div>
+  {{range .Exposed}}<div class="unclaimed">{{.}}</div>{{end}}
   <div class="muted">root on {{.Hosts}} host(s)</div>
   <div class="wrap">
   <table>

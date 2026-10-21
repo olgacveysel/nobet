@@ -107,6 +107,7 @@ func All() []Check {
 		suidFiles,
 		worldWritable,
 		rootWritable,
+		readablePrivateKeys,
 		kernelHardening,
 	}
 }

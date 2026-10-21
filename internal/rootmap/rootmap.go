@@ -48,11 +48,24 @@ func (g Grant) LoginText() string {
 
 // Key is an SSH key that leads to root on at least one host.
 type Key struct {
-	Owner       string   `json:"owner,omitempty"` // from the keys file, if one is used
-	Fingerprint string   `json:"fingerprint"`
-	Type        string   `json:"type"`
-	Comments    []string `json:"comments,omitempty"`
-	Grants      []Grant  `json:"grants"`
+	Owner       string     `json:"owner,omitempty"` // from the keys file, if one is used
+	Fingerprint string     `json:"fingerprint"`
+	Type        string     `json:"type"`
+	Comments    []string   `json:"comments,omitempty"`
+	Grants      []Grant    `json:"grants"`
+	Exposed     []Exposure `json:"exposed,omitempty"` // copies of the private key other accounts can read
+}
+
+// Exposure is a copy of a key's private half that accounts besides its
+// owner can read (FS-004): they can use every grant of the key.
+type Exposure struct {
+	Host string `json:"host"`
+	Path string `json:"path"`
+	Who  string `json:"who"` // "every account", or "the staff group (eve)"
+}
+
+func (e Exposure) String() string {
+	return "private key readable by " + e.Who + " on " + e.Host + ": " + e.Path
 }
 
 // Hosts returns the number of distinct hosts this key reaches root on.
@@ -236,6 +249,26 @@ func Build(results []scan.HostResult) Map {
 		}
 	}
 
+	// Private halves of those keys that others can read, on any host.
+	for _, r := range results {
+		if r.Facts == nil {
+			continue
+		}
+		for _, pk := range r.Facts.PrivateKeys {
+			k := keys[pk.Fingerprint]
+			if k == nil || pk.Fingerprint == "" || pk.Kind != "ssh" {
+				continue
+			}
+			who := "every account"
+			if !pk.Everyone {
+				who = strings.Join(pk.Readers, ", ")
+				if pk.Group != "" {
+					who = "the " + pk.Group + " group (" + who + ")"
+				}
+			}
+			k.Exposed = append(k.Exposed, Exposure{Host: r.Host, Path: pk.Path, Who: who})
+		}
+	}
 	for _, k := range keys {
 		m.Keys = append(m.Keys, *k)
 	}
@@ -512,6 +545,9 @@ func (m Map) WriteText(w io.Writer) {
 	}
 	for _, k := range m.Keys {
 		fmt.Fprintf(tw, "\n%s\n", k.Label(m.OwnersFile))
+		for _, e := range k.Exposed {
+			fmt.Fprintf(tw, "  ! %s\n", e)
+		}
 		fmt.Fprintf(tw, "  root on %d host(s):\n", k.Hosts())
 		for _, g := range k.Grants {
 			line := fmt.Sprintf("    %s\tas %s\tvia %s", g.Host, g.User, routeText(g.Routes))

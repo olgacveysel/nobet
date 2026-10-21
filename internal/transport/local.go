@@ -26,7 +26,8 @@ func NewLocal(timeout time.Duration) (*Local, error) {
 	return &Local{timeout: timeout}, nil
 }
 
-// Run executes cmd with /bin/sh -c. Stdin is empty, so nothing can prompt.
+// Run executes cmd with /bin/sh -c. Stdin is empty and there is no
+// controlling terminal (detach), so nothing can prompt.
 func (l *Local) Run(cmd string) (runner.Result, error) {
 	ctx := context.Background()
 	if l.timeout > 0 {
@@ -38,6 +39,7 @@ func (l *Local) Run(cmd string) (runner.Result, error) {
 	c := exec.CommandContext(ctx, "/bin/sh", "-c", cmd)
 	var stdout, stderr bytes.Buffer
 	c.Stdout, c.Stderr = &stdout, &stderr
+	detach(c)
 	// If a timed-out command left children holding our pipes open, stop
 	// waiting for them shortly after the kill instead of hanging.
 	c.WaitDelay = time.Second

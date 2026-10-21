@@ -429,6 +429,9 @@ func (m model) rootLines(w int) []string {
 	for _, k := range rm.Keys {
 		label := k.Label(rm.OwnersFile)
 		add(styleCursor.Render(label), 0)
+		for _, e := range k.Exposed {
+			add(sevStyle(checks.Critical).Render("! "+e.String()), 2)
+		}
 		n := k.Hosts()
 		st := styleDim
 		if n > 1 {

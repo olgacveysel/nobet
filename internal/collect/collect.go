@@ -170,9 +170,10 @@ type Facts struct {
 	Groups          []GroupEntry
 	Shadow          []ShadowEntry // password states, root only
 	AuthKeys        []AuthKey
-	KeyLogins       *KeyLogins  // when keys last logged in, from sshd's log messages; root only
-	Containers      []Container // running Docker and podman containers; root only
-	ControlSockets  []string    // which of ControlSockets exist, read with Containers
+	KeyLogins       *KeyLogins   // when keys last logged in, from sshd's log messages; root only
+	Containers      []Container  // running Docker and podman containers; root only
+	ControlSockets  []string     // which of ControlSockets exist, read with Containers
+	PrivateKeys     []PrivateKey // private keys other accounts can read; root only
 	Listeners       []Listener
 	Updates         *Updates
 	Reboot          *Reboot
@@ -355,7 +356,7 @@ func Collect(r runner.Runner) *Facts {
 	// users' keys and sudo rights are only fully readable as root; partial
 	// data would look complete, so skip them entirely otherwise.
 	if !f.Privileged() {
-		for _, name := range []string{"sudoers", "shadow", "firewall", "files", "authkeys", "keylogins", "containers", "sudo-rights", "root-jobs"} {
+		for _, name := range []string{"sudoers", "shadow", "firewall", "files", "authkeys", "keylogins", "containers", "privkeys", "sudo-rights", "root-jobs"} {
 			f.Errors[name] = "needs root or passwordless sudo"
 		}
 		return f
@@ -391,6 +392,11 @@ func Collect(r runner.Runner) *Facts {
 			f.Errors["containers"] = why
 		} else {
 			f.Containers, f.ControlSockets = cs, sockets
+		}
+	}
+	if out, ok := run("privkeys", script(privateKeysScript, true)); ok {
+		if f.PrivateKeys = f.parsePrivateKeys(out); f.PrivateKeys == nil {
+			f.Errors["privkeys"] = "the key file listing stopped early"
 		}
 	}
 	if out, ok := run("sudo-rights", script(sudoRightsScript, true)); ok {

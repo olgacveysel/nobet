@@ -123,6 +123,7 @@
 {{range .Root.Keys}}
 <div class="key">
   <div class="fp mono">{{if .Owner}}<b class="owner">{{.Owner}}</b> · {{else if $.Root.OwnersFile}}<span class="unclaimed">no known owner</span> · {{end}}<b>{{.Fingerprint}}</b> · {{.Type}}{{range .Comments}} · {{.}}{{end}}</div>
+  {{range .Exposed}}<div class="unclaimed">{{.}}</div>{{end}}
   <div class="note">root on {{.Hosts}} host(s)</div>
   <table>
     <thead><tr><th>Host</th><th>As user</th><th>Route to root</th><th>Key restrictions</th><th>Key logins</th></tr></thead>

@@ -446,6 +446,10 @@ func (p *pdfWriter) rootMap(m rootmap.Map) {
 		p.need(40)
 		p.setFont(fontMono, 8.5, colInk)
 		p.para(margin, contentW, 11, k.Label(m.OwnersFile))
+		for _, e := range k.Exposed {
+			p.setFont(fontBold, 8, colAmber)
+			p.para(margin, contentW, 10.5, e.String())
+		}
 		p.setFont(fontRegular, 8, colMuted)
 		p.para(margin, contentW, 10.5, fmt.Sprintf("root on %d host(s)", k.Hosts()))
 		for _, g := range k.Grants {

@@ -99,7 +99,7 @@ INCOMPLETE
     db02   not scanned: connection refused
 ```
 
-The last login comes from sshd's log messages (see ACC-006); "no login since" gives the date the logs begin. Use `-json` for machine-readable output. Full results need root or passwordless sudo on every host.
+A line starting with `!` means the key's private half can be read by more than its owner (FS-004): `! private key readable by every account on web03: /home/alice/.ssh/id_ed25519`. The last login comes from sshd's log messages (see ACC-006); "no login since" gives the date the logs begin. Use `-json` for machine-readable output. Full results need root or passwordless sudo on every host.
 
 #### Key owners and offboarding
 
@@ -312,6 +312,7 @@ Measured with 50 hosts (the size nöbet is built for): a full scan takes about 1
 | FS-001  | Critical / High / Medium | SUID on programs that spawn a root shell (bash, find, vim, python…), SUID files in /tmp or home directories, SUID files not owned by any package |
 | FS-002  | High            | World-writable files, or world-writable directories without the sticky bit, in /etc, /usr, /bin, /sbin, /opt |
 | FS-003  | Critical / High | Files root runs or trusts that other accounts can change: Critical when anyone can, High when named accounts can (see below) |
+| FS-004  | Critical / High / Medium | Private keys other accounts can read: accounts' SSH keys, sshd's host keys, TLS keys. High when every account can, Medium for a group; one step higher when the key logs in to a root-capable account on the host |
 | KRN-001 | Medium / Low    | Kernel hardening switched off: ASLR (`kernel.randomize_va_space`), symlink and hardlink protection, readable setuid core dumps (`fs.suid_dumpable = 1`), SYN cookies, source routing. Only settings whose defaults are safe on every supported distribution are checked |
 | UPD-001 | High / Medium   | Pending security updates (apt, dnf, dnf5, yum, zypper); High when the vendor rates any as critical or important. apk (Alpine) does not label security fixes, so there every pending update is reported, as Medium |
 | UPD-002 | Medium          | Reboot required: newer kernel installed than running, or a reboot flag file exists |
@@ -320,6 +321,8 @@ Measured with 50 hosts (the size nöbet is built for): a full scan takes about 1
 | UPD-005 | Low             | Security updates are not installed automatically: unattended-upgrades missing or off (apt), no dnf-automatic, dnf5-automatic or yum-cron timer that applies updates (dnf, yum). Allowlist it where updates roll out another way |
 
 Update checks only read the package manager's local cache. Nöbet never refreshes metadata or installs anything; when there is no cache to read, the check is skipped and tells you which command would create one.
+
+FS-004 looks in every account's `~/.ssh`, at `/etc/ssh/ssh_host_*_key`, and in `/etc/ssl/private`, `/etc/pki/tls/private` and `/etc/letsencrypt/archive`. A key counts as readable when its permissions and those of every directory above it let the account in: a key with mode 644 in a home of mode 700 is safe. Only the key's first line (its PEM header) is read on the host, and its public fingerprint taken from the `.pub` file or from the public part an OpenSSH-format key carries; key material never leaves the host. In the root access map, a key whose private half others can read on some host is marked with `!` and where, since everyone who can read it gets every route to root the key has, on every host.
 
 FS-003 follows what root runs: root's cron jobs (`/etc/crontab`, `/etc/cron.d`, root's crontab, anacron, and the scripts in `/etc/cron.daily` and the like or Alpine's `/etc/periodic`), systemd services that run as root (unit files, drop-ins and every `Exec` command) and the `+` or `!` commands of services that run as another user, root's shell startup files, the directories on root's PATH (the standard ones, `/etc/environment` and sudo's `secure_path`), the programs sudo rules let someone run as root, and the account, sudo and dynamic loader configuration. For scripts outside the package-managed directories, the `#!` interpreter counts too (a cron script that runs `/opt/app/venv/bin/python` is only as safe as that virtualenv), and so do the files the script runs or sources by absolute path. Those are found on the host by awk; only paths leave it, never script contents. From each command line it takes the programs and the scripts given to interpreters (`php /var/www/app/artisan`, `sh -c '...'`), not arguments or redirections, and leaves out commands that switch to another user (`sudo -u`, `su`). A file counts as changeable by an account that owns it or can write it, or that can write any directory above it (a sticky directory like `/tmp` protects what is already in it); symlinks are followed. The accounts found show up in the root access map, which lists up to three such files per account.
 
@@ -351,6 +354,7 @@ UPD-004 knows Ubuntu, Debian (including its free LTS period) and Raspbian, RHEL,
 - sudo Defaults are honored as `sudo -l` reports them, for the user, per runas user (`Defaults>root targetpw`) and per command (`Defaults!/usr/bin/vim rootpw`); host-bound Defaults are taken as already applied by sudo.
 - SUID and world-writable checks search /bin, /sbin, /usr, /opt, /etc, /tmp, /var/tmp, /home, /root and /srv, without crossing filesystems; the rest of /var is skipped because container storage holds many copies of SUID binaries.
 - ACC-006 trusts only journal entries from root's sshd processes, which no other account can fake. Syslog files cannot tell sshd's messages from ones any local account writes with `logger`, so on hosts without a journal (Alpine, or the time before the journal begins) a local account could make a key look used. Keys from `AuthorizedKeysCommand` are not listed, so ACC-006 cannot check them; a certificate login counts as a use of its CA's `cert-authority` line.
+- FS-004 reads file permissions, not ACLs, and only searches the places listed above; a deploy key in `/opt/app` is not found.
 - Any rule in Docker's `DOCKER-USER` chain counts as published ports being filtered there; the rules themselves are not evaluated.
 - CTR-001 looks at root's Docker daemon and root's podman. Rootless containers of other accounts, Kubernetes pods (containerd and CRI-O without Docker), LXC and LXD containers are not listed. It assumes root in a container is root on the host, which Docker's `userns-remap` changes.
 - Local scanning is Linux-only; from macOS or Windows, scan hosts over SSH.
@@ -391,6 +395,7 @@ UPD-004 knows Ubuntu, Debian (including its free LTS period) and Raspbian, RHEL,
 - [x] Reports from saved scans (`nobet report`), changes over a period (`nobet diff -since`), findings by check in the dashboard
 - [x] SSH keys that have not logged in for 90 days (ACC-006), and each key's last login in the root access map
 - [x] Containers that can take over the host (CTR-001): Docker and podman
+- [x] Private keys other accounts can read (FS-004), marked in the root access map
 
 ## Project layout
 
