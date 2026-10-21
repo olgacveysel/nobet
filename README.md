@@ -289,7 +289,7 @@ docker buildx imagetools inspect ghcr.io/olgacveysel/nobet-web:0.1.0 --format '{
 
 ### Scale
 
-Measured with 50 hosts (the size nöbet is built for): a full scan takes about 10 seconds at the default concurrency (`-c 10`) and under 30 MB of memory. With the maximum history of 100 such scans (about 75 MB on disk), `nobet diff` takes 0.4 seconds and the dashboard uses about 25 MB; both read the history one scan at a time.
+Measured with 50 hosts (the size nöbet is built for): a full scan takes about 10 seconds at the default concurrency (`-c 10`) and under 30 MB of memory. With the maximum history of 100 such scans (about 80 MB on disk), `nobet diff` takes 0.4 seconds and the dashboard uses about 27 MB; both read the history one scan at a time.
 
 ## Checks
 

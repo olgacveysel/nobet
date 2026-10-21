@@ -170,19 +170,22 @@ type Facts struct {
 	Groups          []GroupEntry
 	Shadow          []ShadowEntry // password states, root only
 	AuthKeys        []AuthKey
-	KeyLogins       *KeyLogins   // when keys last logged in, from sshd's log messages; root only
-	LogStore        *LogStore    // where the journal is kept and how old the system is
-	Containers      []Container  // running Docker and podman containers; root only
-	ControlSockets  []string     // which of ControlSockets exist, read with Containers
-	PrivateKeys     []PrivateKey // private keys other accounts can read; root only
-	Listeners       []Listener
-	Updates         *Updates
-	Reboot          *Reboot
-	AutoUpdates     map[string]string // how automatic updates are set up (autoUpdatesScript keys); nil if unknown
-	Sysctl          map[string]string // kernel settings by sysctl name (kernel.randomize_va_space); nil if unknown
-	Firewall        *Firewall
-	SUID            []SUIDFile
-	Writable        []WritableEntry
+	KeyLogins       *KeyLogins // when keys last logged in, from sshd's log messages; root only
+	LogStore        *LogStore  // where the journal is kept and how old the system is
+	// Running Docker and podman containers, and which ControlSockets exist;
+	// root only. Only scans use them (CTR-001, NET-001, NET-002), and a
+	// container host can run dozens, so the history leaves them out.
+	Containers     []Container  `json:"-"`
+	ControlSockets []string     `json:"-"`
+	PrivateKeys    []PrivateKey // private keys other accounts can read; root only
+	Listeners      []Listener
+	Updates        *Updates
+	Reboot         *Reboot
+	AutoUpdates    map[string]string // how automatic updates are set up (autoUpdatesScript keys); nil if unknown
+	Sysctl         map[string]string // kernel settings by sysctl name (kernel.randomize_va_space); nil if unknown
+	Firewall       *Firewall
+	SUID           []SUIDFile
+	Writable       []WritableEntry
 	// Files root runs or trusts that other accounts can change; nil if not
 	// collected (root only). Only this result is kept in the scan history:
 	// the listing it comes from is large.

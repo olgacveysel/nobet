@@ -10,8 +10,8 @@ import (
 // "Accepted publickey" log messages. A key missing from Last did not log in
 // at any time since Since, as far as the logs tell.
 type KeyLogins struct {
-	Checked time.Time            `json:"checked"`         // the host's clock when the logs were read
-	Since   time.Time            `json:"since,omitempty"` // the oldest sshd message read; zero if none was found
+	Checked time.Time            `json:"checked"`        // the host's clock when the logs were read
+	Since   time.Time            `json:"since,omitzero"` // the oldest sshd message read; zero if none was found
 	Sources []string             `json:"sources,omitempty"`
 	Last    map[string]time.Time `json:"last,omitempty"` // "user SHA256:..." -> the newest login with that key
 }
