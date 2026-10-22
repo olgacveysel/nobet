@@ -124,7 +124,7 @@ func (s *Server) handleCheck(w http.ResponseWriter, r *http.Request) {
 		var fs []hostFinding
 		for _, f := range cur.Active() {
 			if f.CheckID == id {
-				fs = append(fs, hostFinding{f.Severity.String(), f.CheckID, f.Title, f.Detail, f.Fix})
+				fs = append(fs, ix.withOpen(h, f, s.opts.Now()))
 			}
 		}
 		var allowed []scan.Suppressed

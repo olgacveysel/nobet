@@ -23,11 +23,12 @@ var severities = []string{"critical", "high", "medium", "low", "info"}
 // does not grow with the length of the history. It is rebuilt only when
 // the directory changes.
 type index struct {
-	hosts    []string                      // sorted
-	latest   map[string]attempt            // newest scan attempt per host, failed or not
-	current  map[string]store.HostSnapshot // newest successful scan per host
-	hist     map[string][]historyRow       // every successful scan per host, oldest first
-	groups   []changeGroup                 // every scan-to-scan change set, newest first
+	hosts    []string                         // sorted
+	latest   map[string]attempt               // newest scan attempt per host, failed or not
+	current  map[string]store.HostSnapshot    // newest successful scan per host
+	hist     map[string][]historyRow          // every successful scan per host, oldest first
+	groups   []changeGroup                    // every scan-to-scan change set, newest first
+	opened   map[string]map[openKey]time.Time // per host, when each current finding opened (opensince.go)
 	lastScan time.Time
 }
 
@@ -57,6 +58,7 @@ func buildIndex(dir string) (*index, error) {
 		latest:  map[string]attempt{},
 		current: map[string]store.HostSnapshot{},
 		hist:    map[string][]historyRow{},
+		opened:  map[string]map[openKey]time.Time{},
 	}
 	err := store.Walk(dir, func(s store.Snapshot) error {
 		if s.Time.After(ix.lastScan) {
@@ -76,6 +78,7 @@ func buildIndex(dir string) (*index, error) {
 				}
 			}
 			ix.current[h.Host] = h
+			ix.opened[h.Host] = carryOpen(ix.opened[h.Host], h)
 			ix.hist[h.Host] = append(ix.hist[h.Host], historyRow{
 				Time: h.Time, Counts: countBySeverity(h.Active()),
 				Privileged: h.Facts.Privileged(), Allowlisted: len(h.Allowlisted),

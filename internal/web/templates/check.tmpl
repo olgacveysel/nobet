@@ -10,7 +10,7 @@
   <h3><a href="{{.Href}}">{{.Host}}</a></h3>
   {{range .Findings}}
   <div class="finding">
-    <div><span class="chip chip-{{.Severity}}">{{upper .Severity}}</span> <span class="title">{{.Title}}</span></div>
+    <div><span class="chip chip-{{.Severity}}">{{upper .Severity}}</span> <span class="title">{{.Title}}</span>{{if .Open}} <span class="opened{{if .New}} new{{end}}">{{.Open}}</span>{{end}}</div>
     {{if .Detail}}<p class="detail">{{.Detail}}</p>{{end}}
     {{if .Fix}}<p class="fix">Fix: {{.Fix}}</p>{{end}}
   </div>

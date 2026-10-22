@@ -269,6 +269,8 @@ type hostPage struct {
 type hostFinding struct {
 	Severity                    string
 	CheckID, Title, Detail, Fix string
+	Open                        string // since when, see withOpen
+	New                         bool   // first reported in the newest scan
 }
 
 func (s *Server) handleHost(w http.ResponseWriter, r *http.Request) {
@@ -294,7 +296,7 @@ func (s *Server) handleHost(w http.ResponseWriter, r *http.Request) {
 		active := cur.Active()
 		sort.SliceStable(active, func(i, j int) bool { return active[i].Severity > active[j].Severity })
 		for _, f := range active {
-			p.Findings = append(p.Findings, hostFinding{f.Severity.String(), f.CheckID, f.Title, f.Detail, f.Fix})
+			p.Findings = append(p.Findings, ix.withOpen(name, f, s.opts.Now()))
 		}
 		p.Allowed, p.Skipped = cur.Allowlisted, cur.Skipped
 		hist := ix.hist[name]

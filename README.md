@@ -180,7 +180,7 @@ For complete remote results, the SSH user should be root or have passwordless su
 
 ## Team dashboard: `nobet-web`
 
-`nobet-web` is a separate, optional binary and package that shows the scan history to your team in a browser: fleet status with a 30-day trend, findings by check (which hosts have each problem, where it is allowlisted and why), each host's findings and scan history, every change between scans, and the root access map.
+`nobet-web` is a separate, optional binary and package that shows the scan history to your team in a browser: fleet status with a 30-day trend, findings by check (which hosts have each problem, where it is allowlisted and why), each host's findings (with how long each has been open, and which are new in the newest scan) and scan history, every change between scans, and the root access map.
 
 **It is read-only by design.** It never scans, never connects to your servers and holds no SSH keys (its build is tested to contain no SSH client at all). A systemd timer runs `nobet scan` under a service account and saves to a shared history directory, which the dashboard only reads. If the dashboard were compromised, an attacker would learn your weaknesses but could not act on them; with scan requests turned on, they could at most ask for more read-only scans of hosts the scanner already knows.
 
