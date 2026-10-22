@@ -107,7 +107,7 @@
   {{end}}
   {{if .Suppressed}}
   <p class="note"><b>Allowlisted ({{len .Suppressed}}):</b></p>
-  <ul class="note">{{range .Suppressed}}<li><code>{{.CheckID}}</code> {{.Title}}{{if .Reason}} — <i>{{.Reason}}</i>{{end}} <span class="mono">({{.Rule}})</span></li>{{end}}</ul>
+  <ul class="note">{{range .Suppressed}}<li><code>{{.CheckID}}</code> {{.Title}}{{if .Reason}} — <i>{{.Reason}}</i>{{end}} <span class="mono">({{.Rule}}{{if .Until}}, until {{.Until}}{{end}})</span></li>{{end}}</ul>
   {{end}}
   {{if .Skipped}}
   <p class="note"><b>Skipped checks:</b> {{range $i, $s := .Skipped}}{{if $i}}; {{end}}<code>{{$s.CheckID}}</code> {{$s.Reason}}{{end}}</p>

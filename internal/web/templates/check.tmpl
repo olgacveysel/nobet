@@ -23,7 +23,7 @@
 
 {{if .Allowed}}
 <h2>Allowlisted</h2>
-<ul class="plain">{{range .Allowed}}{{$h := .}}{{range .Items}}<li><a href="{{$h.Href}}">{{$h.Host}}</a>: {{.Title}}{{if .Reason}} — <i>{{.Reason}}</i>{{end}} <span class="muted">({{.Rule}})</span></li>{{end}}{{end}}</ul>
+<ul class="plain">{{range .Allowed}}{{$h := .}}{{range .Items}}<li><a href="{{$h.Href}}">{{$h.Host}}</a>: {{.Title}}{{if .Reason}} — <i>{{.Reason}}</i>{{end}} <span class="muted">({{.Rule}}{{if .Until}}, until {{.Until}}{{end}})</span></li>{{end}}{{end}}</ul>
 {{end}}
 
 {{if .Skipped}}

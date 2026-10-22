@@ -144,7 +144,10 @@ Some findings are expected: your scanning account needs passwordless sudo, web s
 ACC-002  *     nobet-scan   # scanning account needs passwordless sudo
 NET-001  web*  tcp/443      # public web servers
 *        lab-*              # lab machines are out of scope
+CTR-001  *     traefik  until=2027-01-31  # needs the Docker socket; review
 ```
+
+A rule with `until=YYYY-MM-DD` covers findings through that day and none after it, so an accepted risk comes back for review instead of staying hidden for good; scans say on stderr which rules have ended and which end within two weeks, and the dashboard and reports show the date with each allowlisted finding.
 
 Allowlisted findings disappear from reports and no longer affect the exit code, but they are counted ("3 allowlisted") and listed with their reason in `-json` output, so nothing is hidden silently. See `allowlist.example`.
 

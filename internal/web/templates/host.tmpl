@@ -29,7 +29,7 @@
 
 {{if .Allowed}}
 <h3>Allowlisted ({{len .Allowed}})</h3>
-<ul class="plain">{{range .Allowed}}<li><code>{{.CheckID}}</code> {{.Title}}{{if .Reason}} — <i>{{.Reason}}</i>{{end}} <span class="muted">({{.Rule}})</span></li>{{end}}</ul>
+<ul class="plain">{{range .Allowed}}<li><code>{{.CheckID}}</code> {{.Title}}{{if .Reason}} — <i>{{.Reason}}</i>{{end}} <span class="muted">({{.Rule}}{{if .Until}}, until {{.Until}}{{end}})</span></li>{{end}}</ul>
 {{end}}
 
 {{if .Skipped}}

@@ -9,8 +9,11 @@
 # text       optional; must appear in the finding's title or detail
 #            (case-insensitive)
 # reason     everything after " #"; shown in JSON output
+# until=     optional, until=YYYY-MM-DD: the rule covers findings through
+#            that day only, so the exception comes back for review
 
 ACC-002  *        nobet-scan      # scanning account needs passwordless sudo
 NET-001  web*     tcp/443         # public web servers
 UPD-002  db01                     # rebooted in the Sunday maintenance window
 *        lab-*                    # lab machines are out of scope
+CTR-001  *        traefik  until=2027-01-31  # needs the Docker socket; review

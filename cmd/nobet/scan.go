@@ -104,6 +104,9 @@ func runScan(args []string) int {
 		fmt.Fprintln(os.Stderr, "nobet: allowlist:", err)
 		return exitUsage
 	}
+	for _, n := range allowList.Notes(time.Now()) {
+		fmt.Fprintln(os.Stderr, "nobet: allowlist:", n)
+	}
 	owners, err := loadKeys(*keysPath)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "nobet: keys:", err)

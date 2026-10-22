@@ -23,7 +23,8 @@ type Skip struct {
 type Suppressed struct {
 	checks.Finding
 	Reason string `json:"reason,omitempty"`
-	Rule   string `json:"rule"` // file:line of the rule
+	Rule   string `json:"rule"`            // file:line of the rule
+	Until  string `json:"until,omitempty"` // the rule's last day, if it expires
 }
 
 // HostResult is everything nobet learned about one host.

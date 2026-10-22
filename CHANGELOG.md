@@ -3,6 +3,7 @@
 ## Unreleased
 
 - FS-004 also finds private keys outside `~/.ssh` that ssh configurations name (`IdentityFile` in `/etc/ssh/ssh_config`, `ssh_config.d` and each account's `~/.ssh/config`), such as a backup job's key, and keys in the `.ssh` directories of applications under `/opt` and `/srv`.
+- Allowlist rules can end: `until=YYYY-MM-DD` on a rule covers findings through that day and none after it. Scans note rules that have ended or end within two weeks, and JSON output, the dashboard and the reports show the date with each allowlisted finding.
 - CI runs the collector script tests under busybox (Alpine) and gawk (AlmaLinux) too, not only Ubuntu's mawk.
 
 ## v0.2.0 — 2026-10-21

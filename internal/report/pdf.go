@@ -398,8 +398,13 @@ func PDF(w io.Writer, results []scan.HostResult, meta HTMLMeta) error {
 			var parts []string
 			for _, s := range h.Suppressed {
 				part := s.CheckID + " " + s.Title
-				if s.Reason != "" {
+				switch {
+				case s.Reason != "" && s.Until != "":
+					part += " (" + s.Reason + ", until " + s.Until + ")"
+				case s.Reason != "":
 					part += " (" + s.Reason + ")"
+				case s.Until != "":
+					part += " (until " + s.Until + ")"
 				}
 				parts = append(parts, part)
 			}

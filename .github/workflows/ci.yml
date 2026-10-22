@@ -89,6 +89,7 @@ jobs:
   # job's). Their tests run the real scripts, so run them there too, as an
   # ordinary account like a developer's `go test`.
   scripts:
+    name: scripts (${{ matrix.image }})
     runs-on: ubuntu-latest
     strategy:
       matrix:

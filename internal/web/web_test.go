@@ -45,7 +45,7 @@ func webFacts(extraKey bool) *collect.Facts {
 func history(t *testing.T, dir string) {
 	t.Helper()
 	high := checks.Finding{CheckID: "ACC-002", Severity: checks.High, Title: "Passwordless sudo for ALL commands", Detail: "/etc/sudoers.d/deploy: deploy ALL=(ALL) NOPASSWD: ALL", Fix: "Limit NOPASSWD"}
-	allowed := scan.Suppressed{Finding: checks.Finding{CheckID: "NET-001", Severity: checks.Info, Title: "1 other service(s) listening on all interfaces", Detail: "tcp/443"}, Reason: "public web", Rule: "allowlist:3"}
+	allowed := scan.Suppressed{Finding: checks.Finding{CheckID: "NET-001", Severity: checks.Info, Title: "1 other service(s) listening on all interfaces", Detail: "tcp/443"}, Reason: "public web", Rule: "allowlist:3", Until: "2027-01-31"}
 	scans := []struct {
 		at      time.Time
 		results []scan.HostResult
@@ -102,7 +102,7 @@ func TestPages(t *testing.T) {
 		want   []string
 	}{
 		{"/", 200, []string{"web01", "db01", "new01", "never scanned", "unreachable", "<svg", "Recent changes", "intruder@x"}},
-		{"/host/web01", 200, []string{"Passwordless sudo for ALL commands", "Fix: Limit NOPASSWD", "public web", "allowlist:3",
+		{"/host/web01", 200, []string{"Passwordless sudo for ALL commands", "Fix: Limit NOPASSWD", "public web", "allowlist:3, until 2027-01-31",
 			"apk package index cache is missing", "Scan history", "intruder@x"}},
 		{"/host/db01", 200, []string{"connection refused", "last successful scan"}},
 		{"/host/new01", 200, []string{"not in known_hosts"}},
