@@ -147,15 +147,19 @@ func runScan(args []string) int {
 		}
 	}
 
+	var opened *store.Openings
+	if *htmlPath != "" || *pdfPath != "" {
+		opened = openings(*histDir, results, started)
+	}
 	if *htmlPath != "" {
-		if err := writeReport(*htmlPath, report.HTML, results, started, owners); err != nil {
+		if err := writeReport(*htmlPath, report.HTML, results, started, owners, opened); err != nil {
 			fmt.Fprintln(os.Stderr, "nobet: writing HTML report:", err)
 		} else if !*jsonOut {
 			fmt.Printf("HTML report written to %s\n", *htmlPath)
 		}
 	}
 	if *pdfPath != "" {
-		if err := writeReport(*pdfPath, report.PDF, results, started, owners); err != nil {
+		if err := writeReport(*pdfPath, report.PDF, results, started, owners, opened); err != nil {
 			fmt.Fprintln(os.Stderr, "nobet: writing PDF report:", err)
 		} else if !*jsonOut {
 			fmt.Printf("PDF report written to %s\n", *pdfPath)
@@ -215,16 +219,38 @@ func orAnyone(user string) string {
 
 // writeReport writes an HTML or PDF report. The file is 0600 because it
 // lists security weaknesses and access paths.
-func writeReport(p string, write func(io.Writer, []scan.HostResult, report.HTMLMeta) error, results []scan.HostResult, at time.Time, owners *keys.Owners) error {
+func writeReport(p string, write func(io.Writer, []scan.HostResult, report.HTMLMeta) error, results []scan.HostResult, at time.Time, owners *keys.Owners, opened *store.Openings) error {
 	f, err := os.OpenFile(p, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err != nil {
 		return err
 	}
-	if err := write(f, results, report.HTMLMeta{Generated: at, Version: version, Owners: owners}); err != nil {
+	meta := report.HTMLMeta{Generated: at, Version: version, Owners: owners}
+	if opened != nil {
+		meta.Opened = func(host string, f checks.Finding) (string, bool) { return opened.Text(host, f, at) }
+	}
+	if err := write(f, results, meta); err != nil {
 		f.Close()
 		return err
 	}
 	return f.Close()
+}
+
+// openings reads the scan history and adds this scan's results to it, so
+// reports can say since when each finding has been open. Without a
+// readable history every finding is simply new to it.
+func openings(histDir string, results []scan.HostResult, at time.Time) *store.Openings {
+	dir, err := historyDir(histDir)
+	if err != nil {
+		return nil
+	}
+	o, err := store.OpenSince(dir)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "nobet: reading scan history for the report:", err)
+	}
+	for _, r := range results {
+		o.Add(store.FromResult(r, at.UTC()))
+	}
+	return o
 }
 
 // addKeysFlag adds -keys, the file that names the owners of SSH keys.

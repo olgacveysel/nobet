@@ -77,13 +77,17 @@ func runReport(args []string) int {
 		return exitUsage
 	}
 	now := time.Now()
+	opened, err := store.OpenSince(dir)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "nobet: reading scan history:", err)
+	}
 	for _, out := range []struct {
 		path  string
 		write func(p string) error
 		name  string
 	}{
-		{*htmlPath, func(p string) error { return writeReport(p, report.HTML, results, now, owners) }, "HTML"},
-		{*pdfPath, func(p string) error { return writeReport(p, report.PDF, results, now, owners) }, "PDF"},
+		{*htmlPath, func(p string) error { return writeReport(p, report.HTML, results, now, owners, opened) }, "HTML"},
+		{*pdfPath, func(p string) error { return writeReport(p, report.PDF, results, now, owners, opened) }, "PDF"},
 	} {
 		if out.path == "" {
 			continue

@@ -24,6 +24,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/olgacveysel/nobet/internal/checks"
 	"github.com/olgacveysel/nobet/internal/keys"
 	"github.com/olgacveysel/nobet/internal/report"
 	"github.com/olgacveysel/nobet/internal/rootmap"
@@ -373,7 +374,9 @@ func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
 			results = append(results, scan.HostResult{Host: h, Error: ix.latest[h].Error})
 		}
 	}
-	meta := report.HTMLMeta{Generated: s.opts.Now(), Version: s.opts.Version}
+	now := s.opts.Now()
+	meta := report.HTMLMeta{Generated: now, Version: s.opts.Version,
+		Opened: func(host string, f checks.Finding) (string, bool) { return ix.openings.Text(host, f, now) }}
 	if s.opts.KeysFile != "" {
 		if owners, err := keys.Load(s.opts.KeysFile, true); err == nil {
 			meta.Owners = owners

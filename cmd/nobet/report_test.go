@@ -17,8 +17,13 @@ func TestReportFromHistory(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "scans")
 	facts := &collect.Facts{IsRoot: true, OSRelease: map[string]string{"PRETTY_NAME": "Debian 13"}}
 	at := time.Date(2026, 10, 20, 3, 15, 0, 0, time.UTC)
+	root := checks.Finding{CheckID: "SSH-001", Severity: checks.High, Title: "Root can log in directly over SSH"}
+	// Ten days earlier, the same finding: the report says since when.
+	if _, err := store.Save(dir, []scan.HostResult{{Host: "web01", Facts: facts, Findings: []checks.Finding{root}}}, at.AddDate(0, 0, -10)); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := store.Save(dir, []scan.HostResult{
-		{Host: "web01", Facts: facts, Findings: []checks.Finding{{CheckID: "SSH-001", Severity: checks.High, Title: "Root can log in directly over SSH"}}},
+		{Host: "web01", Facts: facts, Findings: []checks.Finding{root, {CheckID: "ACC-002", Severity: checks.High, Title: "Passwordless sudo rule"}}},
 		{Host: "db01", Error: "connection refused"},
 	}, at); err != nil {
 		t.Fatal(err)
@@ -34,6 +39,9 @@ func TestReportFromHistory(t *testing.T) {
 	b, _ := os.ReadFile(html)
 	if !strings.Contains(string(b), "Root can log in directly over SSH") || !strings.Contains(string(b), "no successful scan in the history") {
 		t.Error("the HTML report lacks web01's finding or db01's state")
+	}
+	if !strings.Contains(string(b), "open since 2026-10-10 or earlier") || !strings.Contains(string(b), "new in this scan") {
+		t.Error("the HTML report does not say since when findings have been open")
 	}
 	if st, _ := os.Stat(pdf); st.Mode().Perm() != 0o600 && os.PathSeparator == '/' {
 		t.Errorf("report mode %v, want 0600", st.Mode().Perm())

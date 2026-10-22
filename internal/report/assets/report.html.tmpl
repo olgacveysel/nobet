@@ -41,6 +41,8 @@
   .finding .title { font-weight: 600; }
   .finding .detail { margin: 4px 0 0; word-break: break-word; }
   .finding .fix { margin: 4px 0 0; color: var(--ok); }
+  .finding .opened { margin-left: 6px; color: var(--muted); font-size: 12px; white-space: nowrap; }
+  .finding .opened.new { color: var(--amber); font-weight: 600; }
   .note { color: var(--muted); font-size: 13px; margin: 6px 0 0; }
   .error { color: var(--critical); font-weight: 600; }
   .key { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px 16px; margin: 12px 0; break-inside: avoid-page; }
@@ -98,9 +100,10 @@
   {{if not .Error}}<div class="sub">{{if .OS}}{{.OS}} · {{end}}{{if .Privileged}}scanned with root privileges{{else}}scanned without root: some checks skipped{{end}}</div>{{end}}
   {{if .Error}}<p class="error">Could not scan: {{.Error}}</p>{{end}}
   {{if and (not .Error) (not .Findings)}}<p>No findings.</p>{{end}}
-  {{range .Findings}}
+  {{$host := .Host}}
+  {{range .Findings}}{{$f := .}}
   <div class="finding">
-    <div><span class="sev s-{{sev .Severity}}">{{upper (sev .Severity)}}</span> <code>{{.CheckID}}</code> <span class="title">{{.Title}}</span></div>
+    <div><span class="sev s-{{sev .Severity}}">{{upper (sev .Severity)}}</span> <code>{{.CheckID}}</code> <span class="title">{{.Title}}</span>{{with $.Opened $host $f}} <span class="opened{{if $.IsNew $host $f}} new{{end}}">{{.}}</span>{{end}}</div>
     {{if .Detail}}<p class="detail mono">{{.Detail}}</p>{{end}}
     {{if .Fix}}<p class="fix">Fix: {{.Fix}}</p>{{end}}
   </div>

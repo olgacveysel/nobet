@@ -39,3 +39,36 @@ func TestHTML(t *testing.T) {
 		t.Error("unreachable hosts should be listed first")
 	}
 }
+
+func TestReportsShowOpenSince(t *testing.T) {
+	old := checks.Finding{CheckID: "SSH-001", Severity: checks.High, Title: "Root can log in directly over SSH"}
+	fresh := checks.Finding{CheckID: "ACC-002", Severity: checks.High, Title: "Passwordless sudo rule"}
+	results := []scan.HostResult{{Host: "web01", Privileged: true, Findings: []checks.Finding{old, fresh}}}
+	meta := HTMLMeta{Generated: time.Date(2026, 10, 22, 9, 0, 0, 0, time.UTC), Version: "test",
+		Opened: func(host string, f checks.Finding) (string, bool) {
+			if f.CheckID == "ACC-002" {
+				return "new in this scan", true
+			}
+			return "open since 2026-09-12 (40 days)", false
+		}}
+	var buf bytes.Buffer
+	if err := HTML(&buf, results, meta); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	for _, want := range []string{`<span class="opened">open since 2026-09-12 (40 days)</span>`, `<span class="opened new">new in this scan</span>`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("HTML report is missing %s", want)
+		}
+	}
+	// Without a history, nothing is shown.
+	buf.Reset()
+	meta.Opened = nil
+	if err := HTML(&buf, results, meta); err != nil || strings.Contains(buf.String(), `class="opened`) {
+		t.Errorf("no history: %v", err)
+	}
+	buf.Reset()
+	if err := PDF(&buf, results, HTMLMeta{Generated: meta.Generated, Opened: func(string, checks.Finding) (string, bool) { return "new in this scan", true }}); err != nil {
+		t.Errorf("PDF: %v", err)
+	}
+}

@@ -125,7 +125,7 @@ lists every host where Alice's keys reach root, any other key that reaches an ac
 nobet scan -p -i hosts.txt -html report.html -pdf report.pdf
 ```
 
-`-html` writes a single self-contained HTML file (no external scripts, fonts or images) and `-pdf` an A4 PDF, both with a severity summary, a table of hosts (worst first), every host's findings with fixes, allowlisted findings with their reasons, skipped checks, and the root access map. The files are created with mode 0600 because they describe weaknesses and access paths. The dashboard offers the same reports for download, from each host's newest scan.
+`-html` writes a single self-contained HTML file (no external scripts, fonts or images) and `-pdf` an A4 PDF, both with a severity summary, a table of hosts (worst first), every host's findings with fixes and since when each has been open (from the scan history), allowlisted findings with their reasons, skipped checks, and the root access map. The files are created with mode 0600 because they describe weaknesses and access paths. The dashboard offers the same reports for download, from each host's newest scan.
 
 `nobet report` writes them from the saved history without scanning, from each host's newest successful scan, for example for a weekly report from cron (`-host 'web*'` narrows it to some hosts):
 

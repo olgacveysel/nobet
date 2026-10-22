@@ -31,6 +31,27 @@ type HTMLMeta struct {
 	Generated time.Time
 	Version   string
 	Owners    *keys.Owners // names the keys in the root access map; may be nil
+	// Opened says since when a finding has been open ("open since
+	// 2026-09-03 (49 days)", isNew for "new in this scan"), from the scan
+	// history (store.Openings.Text); nil or "" shows nothing.
+	Opened func(host string, f checks.Finding) (text string, isNew bool)
+}
+
+// Opened and IsNew give the template a finding's Meta.Opened.
+func (d htmlData) Opened(host string, f checks.Finding) string {
+	if d.Meta.Opened == nil {
+		return ""
+	}
+	t, _ := d.Meta.Opened(host, f)
+	return t
+}
+
+func (d htmlData) IsNew(host string, f checks.Finding) bool {
+	if d.Meta.Opened == nil {
+		return false
+	}
+	_, isNew := d.Meta.Opened(host, f)
+	return isNew
 }
 
 type htmlHost struct {

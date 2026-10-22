@@ -384,6 +384,16 @@ func PDF(w io.Writer, results []scan.HostResult, meta HTMLMeta) error {
 				p.text(margin+66, l)
 				p.y += 12.5
 			}
+			if d.Meta.Opened != nil {
+				if t, isNew := d.Meta.Opened(h.Host, f); t != "" {
+					c := colMuted
+					if isNew {
+						c = colAmber
+					}
+					p.setFont(fontRegular, 8, c)
+					p.para(margin+66, contentW-66, 10.5, t)
+				}
+			}
 			if f.Detail != "" {
 				p.setFont(fontRegular, 8.5, colInk)
 				p.para(margin+66, contentW-66, 11, f.Detail)
