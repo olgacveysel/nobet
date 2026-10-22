@@ -252,7 +252,7 @@ Register `https://nobet.example.com/auth/callback` as the client's redirect URI.
 
 #### Prometheus metrics
 
-`nobet-web -metrics` also serves `/metrics` for a Prometheus on the same machine (or one your proxy lets through): per host, the findings in its newest successful scan by severity (`nobet_host_findings`), allowlisted findings, whether the newest attempt succeeded (`nobet_host_up`), whether it is stale (`nobet_host_stale`), the scan times and whether the scan was privileged; for the fleet, the number of SSH keys that lead to root (`nobet_root_keys`, and `nobet_root_keys_unclaimed` with `-keys`). For example:
+`nobet-web -metrics` also serves `/metrics` for a Prometheus on the same machine (or one your proxy lets through): per host, the findings in its newest successful scan by severity (`nobet_host_findings`), allowlisted findings, findings new in the newest scan (`nobet_host_new_findings`), when the oldest open finding of each severity was first reported (`nobet_host_oldest_finding_opened_timestamp_seconds`), whether the newest attempt succeeded (`nobet_host_up`), whether it is stale (`nobet_host_stale`), the scan times and whether the scan was privileged; for the fleet, the number of SSH keys that lead to root (`nobet_root_keys`, and `nobet_root_keys_unclaimed` with `-keys`). For example:
 
 ```yaml
 groups:
@@ -260,6 +260,8 @@ groups:
     rules:
       - alert: NobetCriticalFinding
         expr: nobet_host_findings{severity="critical"} > 0
+      - alert: NobetHighFindingOpenAWeek
+        expr: time() - nobet_host_oldest_finding_opened_timestamp_seconds{severity="high"} > 7 * 86400
       - alert: NobetHostNotScanned
         expr: nobet_host_stale == 1
       - alert: NobetUnclaimedRootKey

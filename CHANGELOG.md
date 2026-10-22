@@ -4,6 +4,7 @@
 
 - FS-004 also finds private keys outside `~/.ssh` that ssh configurations name (`IdentityFile` in `/etc/ssh/ssh_config`, `ssh_config.d` and each account's `~/.ssh/config`), such as a backup job's key, and keys in the `.ssh` directories of applications under `/opt` and `/srv`.
 - How long each finding has been open ("open since 2026-09-03 (49 days)"), and which are new in the newest scan: on nobet-web's host and check pages, and in the HTML and PDF reports (`nobet scan -html/-pdf`, `nobet report`, the dashboard's downloads). A scan that skipped the check or failed does not end the count; counts and lists that change ("5 pending updates" instead of 3) do not either.
+- Metrics (`-metrics`): `nobet_host_new_findings` (by severity, first reported in the host's newest scan) and `nobet_host_oldest_finding_opened_timestamp_seconds` (when the oldest open finding of a severity was first reported), for alerts like "a high finding open for more than a week".
 - Allowlist rules can end: `until=YYYY-MM-DD` on a rule covers findings through that day and none after it. Scans note rules that have ended or end within two weeks, and JSON output, the dashboard and the reports show the date with each allowlisted finding.
 - CI runs the collector script tests under busybox (Alpine) and gawk (AlmaLinux) too, not only Ubuntu's mawk.
 

@@ -2,6 +2,7 @@ package web
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -267,6 +268,12 @@ func TestMetrics(t *testing.T) {
 		`nobet_host_stale{host="db01"} 1`,
 		`nobet_host_allowlisted_findings{host="web01"} 1`,
 		"nobet_root_keys 2\n",
+		// web01's high finding came in the newer scan; db01 was scanned
+		// successfully once, so nothing of it is "new".
+		fmt.Sprintf(`nobet_host_oldest_finding_opened_timestamp_seconds{host="web01",severity="high"} %g`, float64(now.Add(-2*time.Hour).UnixNano())/1e9),
+		fmt.Sprintf(`nobet_host_oldest_finding_opened_timestamp_seconds{host="db01",severity="high"} %g`, float64(now.Add(-50*time.Hour).UnixNano())/1e9),
+		`nobet_host_new_findings{host="web01",severity="high"} 1`,
+		`nobet_host_new_findings{host="db01",severity="high"} 0`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("metrics lack %q:\n%s", want, body)
@@ -277,6 +284,9 @@ func TestMetrics(t *testing.T) {
 	}
 	if strings.Contains(body, "unclaimed") {
 		t.Error("unclaimed keys need a keys file")
+	}
+	if strings.Contains(body, `nobet_host_oldest_finding_opened_timestamp_seconds{host="web01",severity="info"}`) || strings.Contains(body, `{host="new01",severity=`) {
+		t.Error("allowlisted findings and hosts never scanned have no finding ages")
 	}
 	if got := labelValue("a\"b\\c\nd"); got != `a\"b\\c\nd` {
 		t.Errorf("labelValue = %s", got)

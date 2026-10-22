@@ -62,18 +62,35 @@ func (o *Openings) Text(host string, f checks.Finding, now time.Time) (text stri
 	if o == nil || o.scans[host] < 2 {
 		return "", false
 	}
-	opened, ok := o.open[host][keyOf(f)]
+	opened, ok := o.Opened(host, f)
 	if !ok {
 		return "", false
 	}
 	days := int(now.Sub(opened).Hours() / 24)
 	switch {
-	case opened.Equal(o.last[host]):
+	case o.IsNew(host, f):
 		return "new in this scan", true
 	case opened.Equal(o.first[host]):
 		return fmt.Sprintf("open since %s or earlier (%s)", opened.Format(time.DateOnly), dayCount(days)), false
 	}
 	return fmt.Sprintf("open since %s (%s)", opened.Format(time.DateOnly), dayCount(days)), false
+}
+
+// Opened returns when a current finding of host opened: the host's oldest
+// kept scan if it was there already, so the finding may be older still.
+func (o *Openings) Opened(host string, f checks.Finding) (time.Time, bool) {
+	if o == nil {
+		return time.Time{}, false
+	}
+	t, ok := o.open[host][keyOf(f)]
+	return t, ok
+}
+
+// IsNew reports whether a current finding of host was first reported in
+// its newest scan, after earlier scans that did not have it.
+func (o *Openings) IsNew(host string, f checks.Finding) bool {
+	t, ok := o.Opened(host, f)
+	return ok && o.scans[host] > 1 && t.Equal(o.last[host])
 }
 
 // openKey identifies a finding across scans.

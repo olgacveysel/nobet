@@ -100,6 +100,44 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// How long findings have been open, for alerts such as "a critical
+	// finding open for more than 7 days" (time() minus the timestamp).
+	oldest := map[string]map[string]time.Time{}
+	fresh := map[string]map[string]int{}
+	for _, h := range ix.hosts {
+		cur, ok := ix.current[h]
+		if !ok {
+			continue
+		}
+		oldest[h], fresh[h] = map[string]time.Time{}, map[string]int{}
+		for _, f := range cur.Active() {
+			sev := f.Severity.String()
+			if t, ok := ix.openings.Opened(h, f); ok && (oldest[h][sev].IsZero() || t.Before(oldest[h][sev])) {
+				oldest[h][sev] = t
+			}
+			if ix.openings.IsNew(h, f) {
+				fresh[h][sev]++
+			}
+		}
+	}
+	metric("nobet_host_oldest_finding_opened_timestamp_seconds", "gauge", "When the host's oldest open finding of a severity was first reported (the oldest kept scan if it was there already), not counting allowlisted ones; absent when there is none.")
+	for _, h := range ix.hosts {
+		for _, sev := range severities {
+			if t := oldest[h][sev]; !t.IsZero() {
+				sample("nobet_host_oldest_finding_opened_timestamp_seconds", unix(t), "host", h, "severity", sev)
+			}
+		}
+	}
+	metric("nobet_host_new_findings", "gauge", "Findings first reported in the host's newest successful scan, by severity, not counting allowlisted ones.")
+	for _, h := range ix.hosts {
+		if fresh[h] == nil {
+			continue
+		}
+		for _, sev := range severities {
+			sample("nobet_host_new_findings", float64(fresh[h][sev]), "host", h, "severity", sev)
+		}
+	}
+
 	m := s.rootMap(ix)
 	metric("nobet_root_keys", "gauge", "SSH keys that lead to root on at least one host.")
 	sample("nobet_root_keys", float64(len(m.Keys)))
