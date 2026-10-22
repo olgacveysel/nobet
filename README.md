@@ -11,7 +11,7 @@
 
 *Nöbet* is Turkish for a watch or guard shift.
 
-> Status: early development (v0.2).
+> Status: early development (v0.3).
 
 ## Principles
 
@@ -283,13 +283,13 @@ docker compose up -d
 
 Optional files in `config/`: `allowlist`, `ssh_config` for aliases and `ProxyJump`, and an executable `on-change` hook (see [Alerts on changes](#alerts-on-changes); `contrib/hooks/slack` works in the scanner image). The scanner logs each scan (`docker compose logs scanner`); `NOBET_INTERVAL=once` scans once and exits. `config/` and `secrets/` are git-ignored.
 
-Compose runs the release images `ghcr.io/olgacveysel/nobet-scanner` and `ghcr.io/olgacveysel/nobet-web` (amd64 and arm64). Pin a version with `NOBET_VERSION=0.2.0` in a `.env` file next to `compose.yaml` (the default is `latest`, which only moves on releases, not pre-releases); `docker compose up -d --build` builds both from the checkout instead. The images are signed the same way as the downloads, and carry an SBOM and build provenance:
+Compose runs the release images `ghcr.io/olgacveysel/nobet-scanner` and `ghcr.io/olgacveysel/nobet-web` (amd64 and arm64). Pin a version with `NOBET_VERSION=0.3.0` in a `.env` file next to `compose.yaml` (the default is `latest`, which only moves on releases, not pre-releases); `docker compose up -d --build` builds both from the checkout instead. The images are signed the same way as the downloads, and carry an SBOM and build provenance:
 
 ```bash
 cosign verify ghcr.io/olgacveysel/nobet-web:0.1.0 \
   --certificate-identity-regexp '^https://github\.com/olgacveysel/nobet/\.github/workflows/release\.yml@refs/(tags/v|heads/master$)' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
-docker buildx imagetools inspect ghcr.io/olgacveysel/nobet-web:0.2.0 --format '{{ json .SBOM }}'
+docker buildx imagetools inspect ghcr.io/olgacveysel/nobet-web:0.3.0 --format '{{ json .SBOM }}'
 ```
 
 ### Scale

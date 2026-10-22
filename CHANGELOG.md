@@ -1,12 +1,25 @@
 # Changelog
 
-## Unreleased
+## v0.3.0 — 2026-10-22
 
-- FS-004 also finds private keys outside `~/.ssh` that ssh configurations name (`IdentityFile` in `/etc/ssh/ssh_config`, `ssh_config.d` and each account's `~/.ssh/config`), such as a backup job's key, and keys in the `.ssh` directories of applications under `/opt` and `/srv`.
-- How long each finding has been open ("open since 2026-09-03 (49 days)"), and which are new in the newest scan: on nobet-web's host and check pages, and in the HTML and PDF reports (`nobet scan -html/-pdf`, `nobet report`, the dashboard's downloads). A scan that skipped the check or failed does not end the count; counts and lists that change ("5 pending updates" instead of 3) do not either.
+How long things have been wrong, and exceptions that do not last forever: every finding now says since when it has been open, in the dashboard, the reports and the metrics, and allowlist rules can end. Private keys outside `~/.ssh` are found too.
+
+**How long findings have been open**
+- How long each finding has been open ("open since 2026-09-03 (49 days)"), and which are new in the newest scan: on nobet-web's host and check pages, and in the HTML and PDF reports (`nobet scan -html/-pdf`, `nobet report`, the dashboard's downloads). A scan that skipped the check or failed does not end the count; counts and lists that change ("5 pending updates" instead of 3) do not either. A finding already in the oldest kept scan says "or earlier".
 - Metrics (`-metrics`): `nobet_host_new_findings` (by severity, first reported in the host's newest scan) and `nobet_host_oldest_finding_opened_timestamp_seconds` (when the oldest open finding of a severity was first reported), for alerts like "a high finding open for more than a week".
-- Allowlist rules can end: `until=YYYY-MM-DD` on a rule covers findings through that day and none after it. Scans note rules that have ended or end within two weeks, and JSON output, the dashboard and the reports show the date with each allowlisted finding.
+
+**Allowlist**
+- Rules can end: `until=YYYY-MM-DD` on a rule covers findings through that day and none after it, so an accepted risk comes back for review. Scans note rules that have ended or end within two weeks, and JSON output, the dashboard and the reports show the date with each allowlisted finding.
+
+**Checks**
+- FS-004 also finds private keys outside `~/.ssh` that ssh configurations name (`IdentityFile` in `/etc/ssh/ssh_config`, `ssh_config.d` and each account's `~/.ssh/config`), such as a backup job's key, and keys in the `.ssh` directories of applications under `/opt` and `/srv`.
+
+**Development**
 - CI runs the collector script tests under busybox (Alpine) and gawk (AlmaLinux) too, not only Ubuntu's mawk.
+
+**Upgrading**
+- Nothing to change: the dates come from the scan history you already have, from the next scan or dashboard start on.
+- To make an existing exception end, add `until=YYYY-MM-DD` to its allowlist rule.
 
 ## v0.2.0 — 2026-10-21
 
