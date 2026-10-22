@@ -179,6 +179,7 @@ type Facts struct {
 	Containers     []Container  `json:"-"`
 	ControlSockets []string     `json:"-"`
 	PrivateKeys    []PrivateKey // private keys other accounts can read; root only
+	Credentials    []Credential // credential files every account can read; root only
 	Listeners      []Listener
 	Updates        *Updates
 	Reboot         *Reboot
@@ -366,7 +367,7 @@ func Collect(r runner.Runner) *Facts {
 	// users' keys and sudo rights are only fully readable as root; partial
 	// data would look complete, so skip them entirely otherwise.
 	if !f.Privileged() {
-		for _, name := range []string{"sudoers", "shadow", "firewall", "files", "authkeys", "keylogins", "containers", "privkeys", "sudo-rights", "root-jobs"} {
+		for _, name := range []string{"sudoers", "shadow", "firewall", "files", "authkeys", "keylogins", "containers", "privkeys", "credentials", "sudo-rights", "root-jobs"} {
 			f.Errors[name] = "needs root or passwordless sudo"
 		}
 		return f
@@ -407,6 +408,11 @@ func Collect(r runner.Runner) *Facts {
 	if out, ok := run("privkeys", script(privateKeysScript, true)); ok {
 		if f.PrivateKeys = f.parsePrivateKeys(out); f.PrivateKeys == nil {
 			f.Errors["privkeys"] = "the key file listing stopped early"
+		}
+	}
+	if out, ok := run("credentials", script(credentialsScript, true)); ok {
+		if f.Credentials = f.parseCredentials(out); f.Credentials == nil {
+			f.Errors["credentials"] = "the credential file listing stopped early"
 		}
 	}
 	if out, ok := run("sudo-rights", script(sudoRightsScript, true)); ok {

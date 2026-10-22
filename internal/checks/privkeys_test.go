@@ -62,3 +62,21 @@ func TestReadablePrivateKeys(t *testing.T) {
 		t.Errorf("unprivileged: %q", skip)
 	}
 }
+
+func TestReadableCredentials(t *testing.T) {
+	f := &collect.Facts{IsRoot: true, Errors: map[string]string{}, Credentials: []collect.Credential{
+		{Path: "/home/deploy/.aws/credentials", What: "AWS credentials", Owner: "deploy"},
+	}}
+	got, skip := readableCredentials.Run(f)
+	if skip != "" || len(got) != 1 || got[0].CheckID != "FS-005" || got[0].Severity != High ||
+		got[0].Title != "AWS credentials /home/deploy/.aws/credentials can be read by every account" || !strings.Contains(got[0].Fix, "chmod 600") {
+		t.Errorf("got %+v (skip %q)", got, skip)
+	}
+	f.Credentials = []collect.Credential{}
+	if got, skip := readableCredentials.Run(f); len(got) != 0 || skip != "" {
+		t.Errorf("none: %+v %q", got, skip)
+	}
+	if _, skip := readableCredentials.Run(&collect.Facts{Errors: map[string]string{}}); !strings.Contains(skip, "needs root") {
+		t.Errorf("unprivileged: %q", skip)
+	}
+}

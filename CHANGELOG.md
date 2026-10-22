@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- FS-005: credential files every account can read (`.pgpass`, `.my.cnf`, `.netrc`, `.git-credentials`, AWS, Docker registry, Kubernetes, GitHub CLI, npm, PyPI, Vault, S3, rclone and Google Cloud credentials, application `.env` files, WordPress configs, mail relay passwords). The content is checked on the host and never leaves it.
+
 ## v0.3.0 — 2026-10-22
 
 How long things have been wrong, and exceptions that do not last forever: every finding now says since when it has been open, in the dashboard, the reports and the metrics, and allowlist rules can end. Private keys outside `~/.ssh` are found too.

@@ -110,6 +110,7 @@ func All() []Check {
 		worldWritable,
 		rootWritable,
 		readablePrivateKeys,
+		readableCredentials,
 		kernelHardening,
 	}
 }

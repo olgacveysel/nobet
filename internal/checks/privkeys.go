@@ -69,6 +69,27 @@ var readablePrivateKeys = Check{
 	},
 }
 
+var readableCredentials = Check{
+	ID:    "FS-005",
+	Title: "Credential files every account can read",
+	Run: func(f *collect.Facts) ([]Finding, string) {
+		if f.Credentials == nil {
+			return nil, unavailable(f, "credentials", "credential files")
+		}
+		var out []Finding
+		for _, c := range f.Credentials {
+			out = append(out, Finding{
+				CheckID:  "FS-005",
+				Severity: High,
+				Title:    c.What + " " + c.Path + " can be read by every account",
+				Detail:   "owned by " + c.Owner + "; whoever reads it gets what it opens (a database, a cloud account, a registry or cluster)",
+				Fix:      "chmod 600 " + c.Path + " (or 640 with a group only the service is in), and change the secret in it if untrusted accounts may have read it",
+			})
+		}
+		return out, ""
+	},
+}
+
 func uid0(f *collect.Facts, user string) bool {
 	for _, p := range f.Passwd {
 		if p.Name == user {
