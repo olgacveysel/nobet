@@ -119,11 +119,13 @@ var rootWritable = Check{
 			return nil, unavailable(f, collector, "what root runs")
 		}
 		var anyone, accounts []string
+		acl := false
 		for _, w := range f.RootWritable {
 			var who []string
 			everyone := false
 			for _, wr := range w.Writers {
 				everyone = everyone || wr.Everyone
+				acl = acl || strings.HasPrefix(wr.How, "an ACL")
 				who = append(who, wr.String())
 			}
 			entry := w.Path + " " + w.Use() + ": " + strings.Join(who, ", ")
@@ -152,12 +154,16 @@ var rootWritable = Check{
 			})
 		}
 		if len(accounts) > 0 {
+			fix := "Make these files and every directory above them owned by root and writable only by root (chown root:root, chmod go-w"
+			if acl {
+				fix += "; setfacl -b removes ACL entries"
+			}
 			out = append(out, Finding{
 				CheckID:  "FS-003",
 				Severity: High,
 				Title:    "Accounts other than root can change files that root runs",
 				Detail:   joinSome(accounts, 5) + note,
-				Fix:      "Make these files and every directory above them owned by root and writable only by root (chown root:root, chmod go-w); the accounts named can become root by editing them",
+				Fix:      fix + "); the accounts named can become root by editing them",
 			})
 		}
 		return out, ""

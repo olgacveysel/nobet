@@ -31,6 +31,9 @@ var readablePrivateKeys = Check{
 			default:
 				who = summarize(k.Readers, 4)
 			}
+			if k.ACL {
+				who += " through an ACL"
+			}
 			sev := Medium
 			if k.Everyone {
 				sev = High
@@ -61,6 +64,9 @@ var readablePrivateKeys = Check{
 				fnd.Title = "SSH private key " + k.Path + " can be read by " + who
 				notes = append(notes, "whoever has it can log in wherever it is authorized; the root access map shows where that leads")
 				fnd.Fix = "chmod 600 " + k.Path + " and keep ~/.ssh at 700; if other accounts may have copied it, replace the key and remove the old one from authorized_keys"
+			}
+			if k.ACL {
+				fnd.Fix = "setfacl -b " + k.Path + " (removes its ACL entries); " + fnd.Fix
 			}
 			fnd.Detail = strings.Join(notes, "; ")
 			out = append(out, fnd)

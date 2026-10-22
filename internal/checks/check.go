@@ -100,6 +100,7 @@ func All() []Check {
 		loginRecords,
 		exposedListeners,
 		hostFirewall,
+		nfsExports,
 		containerEscape,
 		pendingSecurityUpdates,
 		rebootRequired,

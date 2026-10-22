@@ -129,3 +129,48 @@ func TestPrivateKeysScript(t *testing.T) {
 		t.Error("output without @@end parsed")
 	}
 }
+
+// A key in a closed home that an ACL lets one other account read, with
+// the real getfacl.
+func TestPrivateKeysACL(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("needs /bin/sh")
+	}
+	for _, tool := range []string{"ssh-keygen", "setfacl", "getfacl"} {
+		if _, err := exec.LookPath(tool); err != nil {
+			t.Skip("needs " + tool)
+		}
+	}
+	dir := t.TempDir()
+	os.Chmod(dir, 0o755)
+	os.Chmod(filepath.Dir(dir), 0o755)
+	alice := filepath.Join(dir, "home", "alice")
+	os.MkdirAll(alice+"/.ssh", 0o700)
+	os.Chmod(filepath.Join(dir, "home"), 0o755)
+	os.Chmod(alice, 0o700)
+	key := alice + "/.ssh/id_ed25519"
+	if err := exec.Command("ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", key).Run(); err != nil {
+		t.Fatal(err)
+	}
+	uid := os.Getuid()
+	bob := strconv.Itoa(uid + 1)
+	if out, err := exec.Command("setfacl", "-m", "u:"+bob+":x", alice, alice+"/.ssh").CombinedOutput(); err != nil {
+		t.Skipf("no ACLs here: %s", out)
+	}
+	if out, err := exec.Command("setfacl", "-m", "u:"+bob+":r", key).CombinedOutput(); err != nil {
+		t.Fatalf("setfacl: %s", out)
+	}
+	os.MkdirAll(dir+"/etc", 0o755)
+	os.WriteFile(dir+"/etc/passwd", []byte("alice:x:"+strconv.Itoa(uid)+":50000::"+alice+":/bin/sh\n"), 0o644)
+	script := strings.NewReplacer("/etc/", dir+"/etc/", "/opt/", dir+"/opt/", "/srv/", dir+"/srv/").Replace(privateKeysScript)
+	out, err := exec.Command("/bin/sh", "-c", script).Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := &Facts{Passwd: []PasswdEntry{{Name: "alice", UID: uid, GID: 50000, Home: alice},
+		{Name: "bob", UID: uid + 1, GID: 50001, Home: dir + "/home/bob"}, {Name: "carol", UID: uid + 2, GID: 50001, Home: dir + "/home/carol"}}}
+	got := f.parsePrivateKeys(string(out))
+	if len(got) != 1 || got[0].Path != key || got[0].Everyone || !got[0].ACL || !reflect.DeepEqual(got[0].Readers, []string{"bob"}) {
+		t.Errorf("got %+v\noutput:\n%s", got, out)
+	}
+}

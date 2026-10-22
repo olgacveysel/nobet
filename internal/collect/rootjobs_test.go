@@ -45,6 +45,14 @@ func writersFacts() *Facts {
 			"/etc":                   {UID: 0, GID: 0, Mode: 0o755, Type: "dir"},
 			"/etc/cron.daily":        {UID: 0, GID: 0, Mode: 0o755, Type: "dir"},
 			"/etc/cron.daily/report": {UID: 0, GID: 0, Mode: 0o755, Type: "file"},
+			// ACLs: bob named; the ops group masked off (group:: r-x) and
+			// deploy's group named; alice's own entry refusing what ops allows.
+			"/opt/acl":        {UID: 0, GID: 0, Mode: 0o775, Type: "dir", ACL: &ACL{Group: 5, Users: map[int]uint32{1002: 7}}},
+			"/opt/acl/job":    {UID: 0, GID: 0, Mode: 0o755, Type: "file"},
+			"/opt/masked":     {UID: 0, GID: 2000, Mode: 0o775, Type: "dir", ACL: &ACL{Group: 5, Groups: map[int]uint32{1000: 7}}},
+			"/opt/masked/job": {UID: 0, GID: 0, Mode: 0o755, Type: "file"},
+			"/opt/deny":       {UID: 0, GID: 2000, Mode: 0o775, Type: "dir", ACL: &ACL{Group: 7, Users: map[int]uint32{1001: 5}}},
+			"/opt/deny/job":   {UID: 0, GID: 0, Mode: 0o755, Type: "file"},
 		},
 		Links:        map[string]string{"/usr/bin/python3": "/opt/app/venv/python3.12", "/sbin/fsck": "/usr/sbin/fsck"},
 		Interpreters: map[string]string{"/etc/cron.daily/report": "/opt/app/venv/python3.12"},
@@ -66,6 +74,9 @@ func TestWriters(t *testing.T) {
 		"/usr/bin/python3":       {{Account: "deploy", Path: "/opt/app/venv", How: "owner"}}, // through the link's target
 		"/sbin/fsck":             nil,                                                        // a symlinked directory's own mode means nothing
 		"/etc/cron.daily/report": {{Account: "deploy", Path: "/opt/app/venv", How: "owner", Through: "/opt/app/venv/python3.12"}},
+		"/opt/acl/job":           {{Account: "bob", Path: "/opt/acl", How: "an ACL"}},
+		"/opt/masked/job":        {{Account: "deploy", Path: "/opt/masked", How: "an ACL for group deploy"}},
+		"/opt/deny/job":          nil,
 	}
 	for p, want := range cases {
 		if got := f.Writers(p); !reflect.DeepEqual(got, want) {
@@ -76,9 +87,10 @@ func TestWriters(t *testing.T) {
 
 func TestWriterText(t *testing.T) {
 	cases := map[string]Writer{
-		"deploy owns /opt/app":                {Account: "deploy", Path: "/opt/app", How: "owner"},
-		"alice through group ops on /opt/ops": {Account: "alice", Path: "/opt/ops", How: "group ops"},
-		"/tmp is world-writable":              {Everyone: true, Path: "/tmp", How: "world-writable"},
+		"deploy owns /opt/app":                                               {Account: "deploy", Path: "/opt/app", How: "owner"},
+		"alice through group ops on /opt/ops":                                {Account: "alice", Path: "/opt/ops", How: "group ops"},
+		"/tmp is world-writable":                                             {Everyone: true, Path: "/tmp", How: "world-writable"},
+		"bob through an ACL on /opt/acl":                                     {Account: "bob", Path: "/opt/acl", How: "an ACL"},
 		"deploy owns /opt/venv (above its interpreter /opt/venv/bin/python)": {Account: "deploy", Path: "/opt/venv", How: "owner", Through: "/opt/venv/bin/python"},
 		"app owns its interpreter /opt/venv/bin/python":                      {Account: "app", Path: "/opt/venv/bin/python", How: "owner", Through: "/opt/venv/bin/python"},
 	}

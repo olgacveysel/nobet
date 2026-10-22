@@ -54,6 +54,12 @@ func TestReadablePrivateKeys(t *testing.T) {
 		}
 	}
 
+	f.PrivateKeys = []collect.PrivateKey{{Path: "/home/alice/.ssh/id_rsa", Kind: "ssh", Format: "OPENSSH", Owner: "alice", Readers: []string{"bob"}, ACL: true}}
+	if got, _ := readablePrivateKeys.Run(f); len(got) != 1 || got[0].Title != "SSH private key /home/alice/.ssh/id_rsa can be read by bob through an ACL" ||
+		!strings.HasPrefix(got[0].Fix, "setfacl -b /home/alice/.ssh/id_rsa") {
+		t.Errorf("ACL: %+v", got)
+	}
+
 	f.PrivateKeys = []collect.PrivateKey{}
 	if got, skip := readablePrivateKeys.Run(f); len(got) != 0 || skip != "" {
 		t.Errorf("no readable keys: %+v %q", got, skip)

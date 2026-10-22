@@ -181,6 +181,7 @@ type Facts struct {
 	PrivateKeys    []PrivateKey // private keys other accounts can read; root only
 	Credentials    []Credential // credential files every account can read; root only
 	Listeners      []Listener
+	NFSExports     []NFSExport // what the NFS server exports now; empty when none or stopped
 	Updates        *Updates
 	Reboot         *Reboot
 	AutoUpdates    map[string]string // how automatic updates are set up (autoUpdatesScript keys); nil if unknown
@@ -334,6 +335,12 @@ func Collect(r runner.Runner) *Facts {
 		f.Listeners = parseListeners(out)
 		if f.Listeners == nil {
 			f.Listeners = []Listener{}
+		}
+	}
+	if out, ok := run("nfs", script(nfsScript, true)); ok {
+		var why string
+		if f.NFSExports, why = parseNFSExports(out); why != "" {
+			f.Errors["nfs"] = why
 		}
 	}
 	if out, ok := run("updates", script(updatesScript, true)); ok {

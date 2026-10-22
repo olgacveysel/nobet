@@ -24,8 +24,9 @@ type RootJob struct {
 type PathEntry struct {
 	UID  int    `json:"uid"`
 	GID  int    `json:"gid"`
-	Mode uint32 `json:"mode"` // permission bits, including setuid, setgid and sticky
-	Type string `json:"type"` // file, dir, link or other
+	Mode uint32 `json:"mode"`          // permission bits, including setuid, setgid and sticky
+	Type string `json:"type"`          // file, dir, link or other
+	ACL  *ACL   `json:"acl,omitempty"` // extended ACL entries, when it has any and getfacl could read them
 }
 
 // Writer is an account other than root that can change a file root runs.
@@ -465,9 +466,10 @@ func rootPaths(jobs []RootJob) (paths []string, truncated bool) {
 // for their #! line and "calls|script|path" for the programs they run and
 // the files they source by absolute path (read on the host by awk, so only
 // paths leave it, never script contents), and covers those paths the same
-// way. paths must be shell-safe (see rootPaths).
+// way. ACL entries of all of them follow (aclsFn). paths must be shell-safe
+// (see rootPaths).
 func pathsScript(paths []string) string {
-	return fmt.Sprintf(`set -f
+	return aclsFn + fmt.Sprintf(`set -f
 IFS='
 '
 paths='%s'
@@ -520,13 +522,15 @@ for p in $paths $extra; do
 $t"
   fi
 done
-{
+all=$({
   echo /
   for p in $paths $extra $targets; do
     q=$p
     while [ -n "$q" ]; do echo "$q"; q=${q%%/*}; done
   done
-} | sort -u | tr '\n' '\0' | xargs -0 stat -c 'stat|%%u|%%g|%%a|%%F|%%n' 2>/dev/null
+} | sort -u)
+printf '%%s\n' "$all" | tr '\n' '\0' | xargs -0 stat -c 'stat|%%u|%%g|%%a|%%F|%%n' 2>/dev/null
+printf '%%s\n' "$all" | acls
 echo "@@end"
 `, strings.Join(paths, "\n"))
 }
@@ -535,13 +539,22 @@ echo "@@end"
 // absent. It returns nil maps when the output is incomplete.
 func parsePaths(s string) (entries map[string]PathEntry, links, interps map[string]string, calls map[string][]string) {
 	entries, links, interps, calls = map[string]PathEntry{}, map[string]string{}, map[string]string{}, map[string][]string{}
+	var acls []string
 	for _, line := range strings.Split(s, "\n") {
 		line = strings.TrimRight(line, "\r")
 		if line == "@@end" {
+			for p, a := range parseACLs(acls) {
+				if e, ok := entries[p]; ok {
+					e.ACL = a
+					entries[p] = e
+				}
+			}
 			return entries, links, interps, calls
 		}
 		parts := strings.SplitN(line, "|", 6)
 		switch {
+		case parts[0] == "acl":
+			acls = append(acls, line)
 		case parts[0] == "link" && len(parts) >= 3:
 			links[parts[1]] = strings.Join(parts[2:], "|")
 		case parts[0] == "interp" && len(parts) >= 3:
@@ -615,16 +628,15 @@ func (f *Facts) Writers(p string) []Writer {
 
 func (f *Facts) chainWriters(p string, add func(Writer)) {
 	names, groups := map[int]string{}, map[int]string{}
-	uid0 := map[string]bool{}
 	for _, e := range f.Passwd {
 		if _, dup := names[e.UID]; !dup {
 			names[e.UID] = e.Name
 		}
-		uid0[e.Name] = uid0[e.Name] || e.UID == 0
 	}
 	for _, g := range f.Groups {
 		groups[g.GID] = g.Name
 	}
+	accounts := f.accounts()
 
 	childMissing := false
 	for i, el := range chain(p) {
@@ -655,12 +667,19 @@ func (f *Facts) chainWriters(p string, add func(Writer)) {
 		if ownerOnly {
 			continue
 		}
-		if st.Mode&0o020 != 0 {
-			gname := groups[st.GID]
-			for _, m := range f.GroupMembers(gname) {
-				if !uid0[m] {
-					add(Writer{Account: m, Path: el, How: "group " + gname})
-				}
+		// Accounts that its group, or an ACL entry, lets write it; the
+		// others' bits are the next case.
+		for _, a := range accounts {
+			if a.uid == st.UID {
+				continue
+			}
+			switch via, gid := st.access(a.uid, a.gids, 2); via {
+			case viaGroup:
+				add(Writer{Account: a.name, Path: el, How: "group " + groups[gid]})
+			case viaACLUser:
+				add(Writer{Account: a.name, Path: el, How: "an ACL"})
+			case viaACLGroup:
+				add(Writer{Account: a.name, Path: el, How: "an ACL for group " + groups[gid]})
 			}
 		}
 		if st.Mode&0o002 != 0 {

@@ -87,7 +87,8 @@ jobs:
   # The collector scripts run under whatever sh and awk a host has: busybox
   # on Alpine, gawk on RHEL and its rebuilds (Ubuntu's mawk is the test
   # job's). Their tests run the real scripts, so run them there too, as an
-  # ordinary account like a developer's `go test`.
+  # ordinary account like a developer's `go test`. acl gives the ACL tests a
+  # real getfacl.
   scripts:
     name: scripts (${{ matrix.image }})
     runs-on: ubuntu-latest
@@ -95,9 +96,9 @@ jobs:
       matrix:
         include:
           - image: alpine:3.22
-            setup: apk add -q openssh-keygen && adduser -D tester
+            setup: apk add -q openssh-keygen acl && adduser -D tester
           - image: almalinux:9
-            setup: dnf -y -q install openssh-clients && useradd tester
+            setup: dnf -y -q install openssh-clients acl && useradd tester
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7

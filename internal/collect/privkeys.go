@@ -21,14 +21,15 @@ type PrivateKey struct {
 	Everyone    bool     `json:"everyone,omitempty"`    // every account can read it
 	Group       string   `json:"group,omitempty"`       // the group whose members can read it
 	Readers     []string `json:"readers,omitempty"`     // accounts besides root and the owner that can read it
+	ACL         bool     `json:"acl,omitempty"`         // an ACL entry on the file lets some of them read it
 }
 
 // privateKeysScript finds private keys in every account's ~/.ssh, the keys
 // ssh configurations name (IdentityFile, wherever they are: a backup job's
 // key in /etc/backup), ~/.ssh of applications under /opt and /srv, sshd's
-// host keys and the usual TLS key directories, and prints the owner and
-// mode of each and of every directory above it.
-const privateKeysScript = `# The IdentityFile values in ssh config $1, expanded for account $2 with
+// host keys and the usual TLS key directories, and prints the owner, mode
+// and ACL entries of each and of every directory above it.
+const privateKeysScript = aclsFn + `# The IdentityFile values in ssh config $1, expanded for account $2 with
 # home $3 (none for the system-wide files, where ~ and %d mean everyone).
 idfiles() {
   awk '{ l = $0; sub(/^[ \t]+/, "", l)
@@ -55,7 +56,7 @@ cands() {
   for f in /etc/ssl/private/* /etc/pki/tls/private/* /etc/letsencrypt/archive/*/privkey*.pem; do echo "tls|$f"; done
 }
 # Key lines go to stdout (4); each key's path and the directories above it
-# go through 3 to stat.
+# go through 3 to stat and acls.
 { cands | LC_ALL=C sort -u | head -n 2000 | while IFS='|' read -r kind f; do
   case $f in *.pub | */known_hosts* | */authorized_keys* | */config | *'*'*) continue ;; esac
   [ -f "$f" ] && [ ! -L "$f" ] || continue
@@ -73,7 +74,11 @@ cands() {
   echo "key|$kind|$f|$format|$fp"
   q=$f
   while [ -n "$q" ]; do echo "$q" >&3; q=${q%/*}; done
-done 3>&1 1>&4 | { echo /; sort -u; } | tr '\n' '\0' | xargs -0 stat -c 'stat|%u|%g|%a|%F|%n' 2>/dev/null; } 4>&1
+done 3>&1 1>&4 | {
+  all=$({ echo /; sort -u; })
+  printf '%s\n' "$all" | tr '\n' '\0' | xargs -0 stat -c 'stat|%u|%g|%a|%F|%n' 2>/dev/null
+  printf '%s\n' "$all" | acls
+}; } 4>&1
 echo "@@end"
 `
 
@@ -113,10 +118,10 @@ func (f *Facts) parsePrivateKeys(s string) []PrivateKey {
 
 // keyReaders works out who besides root and the file's owner can read a
 // key: everyone, when the file is readable by others and every directory
-// above it can be entered by others; the members of its group, when it is
-// group-readable and each directory above it lets them through. Groups
-// that only system services are meant to be in (ssl-cert, ssh_keys) count
-// only for keys of accounts.
+// above it can be entered by others; otherwise each account whose groups,
+// ACL entries or the others' bits let it read the file and enter every
+// directory above it. Groups that only system services are meant to be in
+// (ssl-cert, ssh_keys) count only for keys of accounts.
 func (f *Facts) keyReaders(k privateKey, entries map[string]PathEntry) (PrivateKey, bool) {
 	st, ok := entries[k.path]
 	if !ok || st.Type != "file" {
@@ -139,32 +144,51 @@ func (f *Facts) keyReaders(k privateKey, entries map[string]PathEntry) (PrivateK
 	}
 	pk := PrivateKey{Path: k.path, Kind: k.kind, Format: k.format, Fingerprint: k.fp, Owner: name(st.UID)}
 
-	othersThrough, groupThrough := true, true
-	for _, d := range chain(k.path)[1:] {
+	dirs := chain(k.path)[1:]
+	othersThrough := true
+	for _, d := range dirs {
 		de, ok := entries[d]
 		if !ok || de.Type != "dir" {
 			return PrivateKey{}, false
 		}
-		if de.Mode&0o001 == 0 {
-			othersThrough = false
-			if de.Mode&0o010 == 0 || de.GID != st.GID {
-				groupThrough = false
-			}
-		}
+		othersThrough = othersThrough && de.Mode&0o001 != 0
 	}
 	pk.Everyone = othersThrough && st.Mode&0o004 != 0
-	if !pk.Everyone && groupThrough && st.Mode&0o040 != 0 {
-		g := groups[st.GID]
-		service := g == "ssl-cert" || g == "ssh_keys" || g == "root"
-		if g != "" && !(service && k.kind != "ssh") {
-			for _, m := range f.GroupMembers(g) {
-				if m != "root" && m != pk.Owner {
-					pk.Readers = append(pk.Readers, m)
+	if !pk.Everyone {
+		byGroup := true
+		for _, a := range f.accounts() {
+			if a.uid == st.UID {
+				continue
+			}
+			if k.kind != "ssh" {
+				for gid := range a.gids {
+					if g := groups[gid]; g == "ssl-cert" || g == "ssh_keys" || g == "root" {
+						delete(a.gids, gid)
+					}
 				}
 			}
-			if len(pk.Readers) > 0 {
-				pk.Group = g
-				sort.Strings(pk.Readers)
+			via, _ := st.access(a.uid, a.gids, 4)
+			if via == "" {
+				continue
+			}
+			through := true
+			for _, d := range dirs {
+				if v, _ := entries[d].access(a.uid, a.gids, 1); v == "" {
+					through = false
+					break
+				}
+			}
+			if !through {
+				continue
+			}
+			pk.Readers = append(pk.Readers, a.name)
+			byGroup = byGroup && via == viaGroup
+			pk.ACL = pk.ACL || via == viaACLUser || via == viaACLGroup
+		}
+		if len(pk.Readers) > 0 {
+			sort.Strings(pk.Readers)
+			if byGroup {
+				pk.Group = groups[st.GID]
 			}
 		}
 	}
