@@ -84,7 +84,12 @@ func containerRisks(c collect.Container, sockets []string) (Severity, []string, 
 			fixes = append(fixes, fix)
 		}
 	}
-	if c.Privileged {
+	switch {
+	case c.Privileged && (c.Runtime == "incus" || c.Runtime == "lxd"):
+		client := map[string]string{"incus": "incus", "lxd": "lxc"}[c.Runtime]
+		add(High, "is a privileged container (security.privileged: root in it is root on the host, without a user namespace)",
+			"Make it unprivileged: "+client+" config unset "+c.Name+" security.privileged, then restart it.")
+	case c.Privileged:
 		add(High, "runs privileged (all capabilities and host devices)", "Drop --privileged and add only the capabilities or devices it needs.")
 	}
 	for _, m := range c.Mounts {
@@ -163,6 +168,10 @@ func socketName(s string) string {
 		return "systemd"
 	case strings.Contains(s, "/dbus/"):
 		return "D-Bus system bus"
+	case strings.Contains(s, "/incus/"):
+		return "Incus"
+	case strings.Contains(s, "/lxd/"):
+		return "LXD"
 	}
 	return "container runtime"
 }

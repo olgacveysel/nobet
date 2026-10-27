@@ -46,7 +46,7 @@ func TestContainerEscape(t *testing.T) {
 	}{
 		"traefik":       {High, "socket /var/run/docker.sock mounted"},
 		"priv":          {High, "runs privileged"},
-		"node-exporter": {High, "host's / mounted, which holds root's control sockets (container runtime, systemd, D-Bus system bus)"},
+		"node-exporter": {High, "host's / mounted, which holds root's control sockets (container runtime, Incus, LXD, systemd, D-Bus system bus)"},
 		"cronedit":      {High, "can write the host's /etc/cron.d"},
 		"periodic":      {High, "can write the host's /etc/periodic/"},
 		"pidlabel":      {Medium, "shares the host's process namespace (sees and can signal every host process)"},
@@ -121,5 +121,31 @@ func TestContainerEscape(t *testing.T) {
 	}
 	if _, skip := containerEscape.Run(&collect.Facts{IsRoot: true, Errors: map[string]string{"containers": "docker: permission denied"}}); !strings.Contains(skip, "permission denied") {
 		t.Errorf("runtime error: %q", skip)
+	}
+}
+
+func TestInstanceRisks(t *testing.T) {
+	f := &collect.Facts{IsRoot: true, Errors: map[string]string{}, ControlSockets: []string{"/var/lib/incus/unix.socket"},
+		Containers: []collect.Container{
+			{Runtime: "incus", Name: "build", Image: "Alpine 3.22", Privileged: true},
+			{Runtime: "lxd", Name: "web", Image: "Ubuntu 24.04", Mounts: []collect.Mount{{Type: "bind", Source: "/etc", Destination: "/mnt/etc", RW: true}}},
+			{Runtime: "incus", Name: "ci", Mounts: []collect.Mount{{Type: "bind", Source: "/var/lib/incus/unix.socket", Destination: "/mnt/incus.sock", RW: true}}},
+			{Runtime: "incus", Name: "plain"},
+		}}
+	got, skip := containerEscape.Run(f)
+	if skip != "" || len(got) != 3 {
+		t.Fatalf("got %d findings (skip %q): %+v", len(got), skip, got)
+	}
+	for i, want := range []struct{ title, detail, fix string }{
+		{"Container build can take over the host", "is a privileged container (security.privileged", "incus config unset build security.privileged"},
+		{"Container web can take over the host", "can write the host's /etc", "Mount only the directory it needs"},
+		{"Container ci can take over the host", "Incus socket /var/lib/incus/unix.socket", "Do not give it the socket"},
+	} {
+		if got[i].Severity != High || got[i].Title != want.title || !strings.Contains(got[i].Detail, want.detail) || !strings.Contains(got[i].Fix, want.fix) {
+			t.Errorf("finding %d: %+v", i, got[i])
+		}
+	}
+	if !strings.Contains(got[1].Detail, "(lxd, image Ubuntu 24.04)") {
+		t.Errorf("detail: %s", got[1].Detail)
 	}
 }

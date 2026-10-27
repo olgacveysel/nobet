@@ -1,0 +1,158 @@
+container:
+  architecture: x86_64
+  config:
+    environment.API_TOKEN: labsecret2
+    image.architecture: amd64
+    image.description: Alpine 3.22 amd64 (20261016_13:00)
+    image.os: Alpine
+    image.release: "3.22"
+    image.requirements.secureboot: "false"
+    image.serial: "20261016_13:00"
+    image.type: squashfs
+    image.variant: default
+    raw.lxc: lxc.cap.drop=
+    security.nesting: "true"
+    volatile.base_image: 016b0caf6422687535e3a62ab54d8c224160f39d968c61419bee7953e61e4d78
+    volatile.cloud-init.instance-id: cdebf1ea-e156-45f9-a4d2-723a226d8e55
+    volatile.eth0.host_name: vethd64f83bc
+    volatile.eth0.hwaddr: 10:66:6a:14:ff:a5
+    volatile.idmap.base: "0"
+    volatile.idmap.current: '[{"Isuid":true,"Isgid":false,"Hostid":1000000,"Nsid":0,"Maprange":1000000000},{"Isuid":false,"Isgid":true,"Hostid":1000000,"Nsid":0,"Maprange":1000000000}]'
+    volatile.idmap.next: '[{"Isuid":true,"Isgid":false,"Hostid":1000000,"Nsid":0,"Maprange":1000000000},{"Isuid":false,"Isgid":true,"Hostid":1000000,"Nsid":0,"Maprange":1000000000}]'
+    volatile.last_state.idmap: '[]'
+    volatile.last_state.power: RUNNING
+    volatile.uuid: aaab56a0-0f2b-4b53-87d3-3b1f8b618484
+    volatile.uuid.generation: aaab56a0-0f2b-4b53-87d3-3b1f8b618484
+  devices:
+    disk0:
+      path: /dev/xvdb
+      source: /dev/loop0
+      type: unix-block
+    hostetc:
+      path: /mnt/etc
+      source: /etc
+      type: disk
+    plain:
+      path: /mnt/plain
+      source: /var/lib/incus/hostdir
+      type: disk
+    ro:
+      path: /mnt/ro
+      readonly: "true"
+      source: /var/lib/incus/hostdir
+      type: disk
+    shifted:
+      path: /mnt/shifted
+      shift: "true"
+      source: /var/lib/incus/hostdir
+      type: disk
+    sock:
+      path: /mnt/incus.sock
+      source: /var/lib/incus/unix.socket
+      type: disk
+  ephemeral: false
+  profiles:
+  - default
+  stateful: false
+  description: ""
+  created_at: 2026-10-27T18:41:05.889924474Z
+  expanded_config:
+    environment.API_TOKEN: labsecret2
+    image.architecture: amd64
+    image.description: Alpine 3.22 amd64 (20261016_13:00)
+    image.os: Alpine
+    image.release: "3.22"
+    image.requirements.secureboot: "false"
+    image.serial: "20261016_13:00"
+    image.type: squashfs
+    image.variant: default
+    raw.lxc: lxc.cap.drop=
+    security.nesting: "true"
+    volatile.base_image: 016b0caf6422687535e3a62ab54d8c224160f39d968c61419bee7953e61e4d78
+    volatile.cloud-init.instance-id: cdebf1ea-e156-45f9-a4d2-723a226d8e55
+    volatile.eth0.host_name: vethd64f83bc
+    volatile.eth0.hwaddr: 10:66:6a:14:ff:a5
+    volatile.idmap.base: "0"
+    volatile.idmap.current: '[{"Isuid":true,"Isgid":false,"Hostid":1000000,"Nsid":0,"Maprange":1000000000},{"Isuid":false,"Isgid":true,"Hostid":1000000,"Nsid":0,"Maprange":1000000000}]'
+    volatile.idmap.next: '[{"Isuid":true,"Isgid":false,"Hostid":1000000,"Nsid":0,"Maprange":1000000000},{"Isuid":false,"Isgid":true,"Hostid":1000000,"Nsid":0,"Maprange":1000000000}]'
+    volatile.last_state.idmap: '[]'
+    volatile.last_state.power: RUNNING
+    volatile.uuid: aaab56a0-0f2b-4b53-87d3-3b1f8b618484
+    volatile.uuid.generation: aaab56a0-0f2b-4b53-87d3-3b1f8b618484
+  expanded_devices:
+    disk0:
+      path: /dev/xvdb
+      source: /dev/loop0
+      type: unix-block
+    eth0:
+      name: eth0
+      network: incusbr0
+      type: nic
+    hostetc:
+      path: /mnt/etc
+      source: /etc
+      type: disk
+    plain:
+      path: /mnt/plain
+      source: /var/lib/incus/hostdir
+      type: disk
+    ro:
+      path: /mnt/ro
+      readonly: "true"
+      source: /var/lib/incus/hostdir
+      type: disk
+    root:
+      path: /
+      pool: default
+      type: disk
+    shifted:
+      path: /mnt/shifted
+      shift: "true"
+      source: /var/lib/incus/hostdir
+      type: disk
+    sock:
+      path: /mnt/incus.sock
+      source: /var/lib/incus/unix.socket
+      type: disk
+  name: c2
+  status: Running
+  status_code: 103
+  last_used_at: 2026-10-27T18:44:49.376312652Z
+  location: none
+  type: container
+  project: default
+pool:
+  config:
+    source: /var/lib/incus/storage-pools/default
+  description: ""
+  name: default
+  driver: dir
+  used_by: []
+  status: Created
+  locations:
+  - none
+profiles:
+- config: {}
+  description: Default Incus profile
+  devices:
+    eth0:
+      name: eth0
+      network: incusbr0
+      type: nic
+    root:
+      path: /
+      pool: default
+      type: disk
+  name: default
+  used_by: []
+  project: default
+volume:
+  config: {}
+  description: ""
+  name: c2
+  type: container
+  used_by: []
+  location: none
+  content_type: filesystem
+  project: default
+  created_at: 2026-10-27T18:41:05.889924474Z

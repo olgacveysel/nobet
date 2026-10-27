@@ -1,6 +1,7 @@
 package collect
 
 import (
+	"embed"
 	"net"
 	"os"
 	"os/exec"
@@ -121,5 +122,97 @@ esac
 	}
 	if got, why := run("PATH=" + t.TempDir()); why != "" || got == nil || len(got) != 0 { // only shell builtins
 		t.Errorf("no runtimes installed: %q %+v", why, got)
+	}
+}
+
+// incusFiles are real backup.yaml files (Incus 6.0, Debian 13), embedded so
+// the test binary runs anywhere (CI's scripts job).
+//
+//go:embed testdata/incus/*.yaml
+var incusFiles embed.FS
+
+// Incus and LXD instances come from their monitor processes and
+// backup.yaml: one unprivileged and running, with host directories (plain,
+// shifted, read-only), the Incus socket and a block device; one privileged
+// and stopped, which the test also starts by editing its last power state.
+func TestInstancesScript(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("needs /bin/sh")
+	}
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "bin")
+	os.Mkdir(bin, 0o755)
+	put := func(p, content string) {
+		t.Helper()
+		os.MkdirAll(filepath.Dir(p), 0o755)
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	read := func(name string) string {
+		t.Helper()
+		b, err := incusFiles.ReadFile("testdata/incus/" + name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(b)
+	}
+	unpriv, priv := read("unprivileged-running.yaml"), read("privileged-stopped.yaml")
+	// Each monitor's root is dir/<pid>; the script reads /proc/<pid>/root.
+	put(dir+"/93/var/lib/incus/containers/c2/backup.yaml", unpriv)
+	put(dir+"/94/var/lib/incus/containers/c1/backup.yaml", priv)
+	put(dir+"/95/var/lib/incus/containers/c4/backup.yaml", strings.Replace(priv, "volatile.last_state.power: STOPPED", "volatile.last_state.power: RUNNING", 2))
+	put(dir+"/96/var/snap/lxd/common/lxd/containers/web/backup.yaml", unpriv)
+	ps := `#!/bin/sh
+cat <<'X'
+    PID COMMAND
+      1 /sbin/init
+     93 [lxc monitor] /var/lib/incus/containers c2
+     94 [lxc monitor] /var/lib/incus/containers c1
+     95 [lxc monitor] /var/lib/incus/containers c4
+     96 [lxc monitor] /var/snap/lxd/common/lxd/containers web
+     97 [lxc monitor] /var/lib/lxc old
+     98 grep [lxc monitor] x
+X
+`
+	os.WriteFile(filepath.Join(bin, "ps"), []byte(ps), 0o755)
+	run := func() string {
+		t.Helper()
+		cmd := exec.Command("/bin/sh", "-c", strings.ReplaceAll(instancesScript, "/proc/$pid/root", dir+"/$pid")+"echo @@end\n")
+		cmd.Env = append(os.Environ(), "PATH="+bin+":/usr/bin:/bin")
+		out, err := cmd.Output()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(out), "labsecret") {
+			t.Fatalf("an instance's environment left the host:\n%s", out)
+		}
+		return string(out)
+	}
+	got, _, why := parseContainers(run())
+	// Unprivileged: only the shifted directory counts, and the block device.
+	c2 := Container{Runtime: "incus", Name: "c2", Image: "Alpine 3.22", Devices: []string{"/dev/loop0"},
+		Mounts: []Mount{{Type: "bind", Source: "/var/lib/incus/hostdir", Destination: "/mnt/shifted", RW: true}}}
+	web := c2
+	web.Runtime, web.Name = "lxd", "web"
+	c4 := Container{Runtime: "incus", Name: "c4", Image: "Alpine 3.22", Privileged: true}
+	if want := []Container{c2, c4, web}; why != "" || !reflect.DeepEqual(got, want) {
+		t.Errorf("got  %+v (%q)\nwant %+v", got, why, want)
+	}
+
+	// Privileged, every host directory counts, read-only ones as such.
+	put(dir+"/95/var/lib/incus/containers/c4/backup.yaml", strings.Replace(unpriv, "    security.nesting: \"true\"\n", "    security.nesting: \"true\"\n    security.privileged: \"true\"\n", 2))
+	got, _, _ = parseContainers(run())
+	var mounts []string
+	for _, m := range got[1].Mounts {
+		mounts = append(mounts, m.Destination+map[bool]string{true: " rw", false: " ro"}[m.RW])
+	}
+	if want := []string{"/mnt/etc rw", "/mnt/plain rw", "/mnt/ro ro", "/mnt/shifted rw", "/mnt/incus.sock rw"}; !got[1].Privileged || !reflect.DeepEqual(mounts, want) {
+		t.Errorf("privileged c4: %+v\nmounts %v, want %v", got[1], mounts, want)
+	}
+
+	os.Remove(dir + "/93/var/lib/incus/containers/c2/backup.yaml")
+	if got, _, why := parseContainers(run()); got != nil || !strings.Contains(why, "cannot read /var/lib/incus/containers/c2/backup.yaml") {
+		t.Errorf("unreadable backup.yaml: %q %+v", why, got)
 	}
 }
