@@ -1,11 +1,24 @@
 # Changelog
 
-## Unreleased
+## v0.4.0 — 2026-10-27
 
+More ways in that a server can leave open: credential files anyone can read, NFS exports that hand out root, Incus and LXD containers, and permissions granted through ACLs.
+
+**New checks**
 - FS-005: credential files every account can read (`.pgpass`, `.my.cnf`, `.netrc`, `.git-credentials`, AWS, Docker registry, Kubernetes, GitHub CLI, npm, PyPI, Vault, S3, rclone and Google Cloud credentials, application `.env` files, WordPress configs, mail relay passwords). The content is checked on the host and never leaves it.
 - NET-003: NFS exports that give away root or every account's files. Root on a client is root in a writable export (`no_root_squash`, `anonuid=0`): Critical when every host may mount it, High for named hosts; exports every host may mount are also reported for reading as root or reading and writing as any account. It reads the server's current export table (`/var/lib/nfs/etab`) without running `exportfs`, needs no root, and ignores Kerberos-only exports and stopped servers.
+
+**Wider checks**
 - CTR-001 covers Incus and LXD containers: privileged ones (`security.privileged`), host directories they can write (in unprivileged containers only shifted ones, `shift=true`, since root there is not the host's root), raw disks, and the Incus or LXD socket passed in. Configuration comes from each running container's `backup.yaml`, without the `incus` or `lxc` commands; `environment.*` values stay on the host.
 - FS-003 and FS-004 read ACLs (with `getfacl`, where the `acl` package is installed): an account an ACL entry lets change a file root runs, or read a private key, is reported ("bob through an ACL on /opt/tool", "can be read by bob through an ACL"). Access is decided as the kernel does it, so with an ACL the owning group's rights come from its `group::` entry within the mask rather than the mode's group bits, and an account's own entry overrides what its groups allow; both used to be reported wrongly.
+
+**Development**
+- CI's script tests install the `acl` package, so the ACL tests run against a real `getfacl` under busybox and gawk.
+
+**Upgrading**
+- Nothing to change: the new checks run on the next scan. FS-005, the ACLs and Incus/LXD need root or passwordless sudo on the host, like the other checks that read other accounts' files; NET-003 does not.
+- ACLs are read where `getfacl` is installed (the `acl` package, which is also what sets them).
+- On hosts with ACLs, FS-003 findings can change: accounts that only seemed able to write through a masked group drop out, and accounts an ACL names appear.
 
 ## v0.3.0 — 2026-10-22
 
