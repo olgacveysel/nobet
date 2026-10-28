@@ -50,6 +50,11 @@ cands() {
   for f in /var/www/*/wp-config.php /var/www/*/*/wp-config.php; do
     check "$f" "WordPress database password" 'DB_PASSWORD'
   done
+  # Password hashes: a field that is not empty, x, or only locked (! or *).
+  # /etc/passwd is world-readable by design, so only hashes in it count.
+  for f in /etc/shadow /etc/shadow- /etc/gshadow /etc/gshadow- /var/backups/shadow.bak /var/backups/gshadow.bak /etc/security/opasswd /etc/passwd /etc/passwd-; do
+    check "$f" "password hashes" '^[^:]*:[!*]*([^:!*x]|x[^:])'
+  done
   check /etc/mysql/debian.cnf "MySQL maintenance account" '^[[:space:]]*password[[:space:]]*='
   check /etc/postfix/sasl_passwd "mail relay password" '^[^#[:space:]]'
   check /etc/msmtprc "mail relay password" '^[[:space:]]*password'

@@ -27,7 +27,7 @@ func TestCredentialsScript(t *testing.T) {
 		}
 		os.Chmod(p, mode)
 	}
-	secrets := []string{"s3cr3t", "XYZSECRET", "hunter2", "wp-pw", "ghp_tok", "netrcpw"}
+	secrets := []string{"s3cr3t", "XYZSECRET", "hunter2", "wp-pw", "ghp_tok", "netrcpw", "hashsecret", "md5secret"}
 
 	// alice's home is open: what every account can read counts.
 	file("home/alice/.pgpass", "db.internal:5432:*:alice:s3cr3t\n", 0o644)
@@ -45,6 +45,13 @@ func TestCredentialsScript(t *testing.T) {
 	file("opt/empty/.env", "# DB_PASSWORD=\nAPI_KEY=\n", 0o644)
 	file("var/www/site/wp-config.php", "<?php define('DB_PASSWORD', 'wp-pw');\n", 0o644)
 	file("etc/mysql/debian.cnf", "[client]\npassword = s3cr3t\n", 0o600)
+	// Password hashes: a shadow file anyone can read, a backup with only
+	// locked and disabled entries, a gshadow only its group reads, and an
+	// old passwd with a hash in it.
+	file("etc/shadow", "root:$6$salt$hashsecret:20000:0:99999:7:::\ndaemon:*:20000:0:99999:7:::\n", 0o644)
+	file("etc/shadow-", "root:!:20000::::::\nbin:*:20000::::::\nsvc:!!:20000::::::\n", 0o644)
+	file("etc/gshadow", "wheel:$6$salt$hashsecret::alice\n", 0o640)
+	file("etc/passwd-", "old:$1$salt$md5secret:1000:1000::/home/old:/bin/sh\n", 0o644)
 
 	uid := os.Getuid()
 	passwd := "alice:x:" + strconv.Itoa(uid) + ":100::" + dir + "/home/alice:/bin/sh\n" +
@@ -64,6 +71,8 @@ func TestCredentialsScript(t *testing.T) {
 	f := &Facts{Passwd: []PasswdEntry{{Name: "alice", UID: uid}}}
 	got := f.parseCredentials(string(out))
 	want := []Credential{
+		{Path: dir + "/etc/passwd-", What: "password hashes", Owner: "alice"},
+		{Path: dir + "/etc/shadow", What: "password hashes", Owner: "alice"},
 		{Path: dir + "/home/alice/.aws/credentials", What: "AWS credentials", Owner: "alice"},
 		{Path: dir + "/home/alice/.netrc", What: "netrc with a password", Owner: "alice"},
 		{Path: dir + "/home/alice/.pgpass", What: "PostgreSQL password file", Owner: "alice"},

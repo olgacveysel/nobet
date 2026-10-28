@@ -178,6 +178,7 @@ type Facts struct {
 	// container host can run dozens, so the history leaves them out.
 	Containers     []Container  `json:"-"`
 	ControlSockets []string     `json:"-"`
+	DockerAPI      []DockerAPI  // root's dockerd instances serving the API over TCP; root only
 	PrivateKeys    []PrivateKey // private keys other accounts can read; root only
 	Credentials    []Credential // credential files every account can read; root only
 	Listeners      []Listener
@@ -374,7 +375,7 @@ func Collect(r runner.Runner) *Facts {
 	// users' keys and sudo rights are only fully readable as root; partial
 	// data would look complete, so skip them entirely otherwise.
 	if !f.Privileged() {
-		for _, name := range []string{"sudoers", "shadow", "firewall", "files", "authkeys", "keylogins", "containers", "privkeys", "credentials", "sudo-rights", "root-jobs"} {
+		for _, name := range []string{"sudoers", "shadow", "firewall", "files", "authkeys", "keylogins", "containers", "dockerd", "privkeys", "credentials", "sudo-rights", "root-jobs"} {
 			f.Errors[name] = "needs root or passwordless sudo"
 		}
 		return f
@@ -410,6 +411,12 @@ func Collect(r runner.Runner) *Facts {
 			f.Errors["containers"] = why
 		} else {
 			f.Containers, f.ControlSockets = cs, sockets
+		}
+	}
+	if out, ok := run("dockerd", script(dockerAPIScript, true)); ok {
+		var why string
+		if f.DockerAPI, why = parseDockerAPI(out); why != "" {
+			f.Errors["dockerd"] = why
 		}
 	}
 	if out, ok := run("privkeys", script(privateKeysScript, true)); ok {

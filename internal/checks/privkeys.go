@@ -84,13 +84,21 @@ var readableCredentials = Check{
 		}
 		var out []Finding
 		for _, c := range f.Credentials {
-			out = append(out, Finding{
+			fnd := Finding{
 				CheckID:  "FS-005",
 				Severity: High,
 				Title:    c.What + " " + c.Path + " can be read by every account",
 				Detail:   "owned by " + c.Owner + "; whoever reads it gets what it opens (a database, a cloud account, a registry or cluster)",
 				Fix:      "chmod 600 " + c.Path + " (or 640 with a group only the service is in), and change the secret in it if untrusted accounts may have read it",
-			})
+			}
+			if c.What == "password hashes" {
+				fnd.Detail = "owned by " + c.Owner + "; hashes can be cracked offline, and weak passwords (root's included) fall quickly"
+				fnd.Fix = "chmod 640 " + c.Path + " with group shadow (RHEL and its rebuilds use mode 000), and change the passwords of accounts that matter if untrusted accounts may have read it"
+				if strings.HasPrefix(c.Path, "/etc/passwd") {
+					fnd.Fix = "Move the hashes to /etc/shadow (pwconv), and change the passwords of accounts that matter"
+				}
+			}
+			out = append(out, fnd)
 		}
 		return out, ""
 	},

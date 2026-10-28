@@ -2,6 +2,7 @@ package checks
 
 import (
 	"fmt"
+	"net"
 	"sort"
 	"strconv"
 	"strings"
@@ -36,6 +37,62 @@ func loopbackAddr(addr string) bool {
 // privileged container and so is root on the host.
 const dockerAPIPort = 2375
 
+// dockerHost splits a dockerd tcp:// host into its address ("" for every
+// interface) and port, which defaults to 2376 with TLS and 2375 without.
+func dockerHost(h string, tls bool) (addr string, port int) {
+	rest := strings.TrimPrefix(h, "tcp://")
+	rest, _, _ = strings.Cut(rest, "/")
+	port = dockerAPIPort
+	if tls {
+		port = 2376
+	}
+	if a, p, err := net.SplitHostPort(rest); err == nil {
+		addr = a
+		if n, err := strconv.Atoi(p); err == nil {
+			port = n
+		}
+	} else {
+		addr = strings.Trim(rest, "[]")
+	}
+	return addr, port
+}
+
+// dockerAPIFindings reports root's dockerd serving its API over TCP to
+// clients without a certificate: whoever connects can start a privileged
+// container. Bound to loopback, that is every local account and every
+// container sharing the host's network.
+func dockerAPIFindings(apis []collect.DockerAPI) []Finding {
+	var out []Finding
+	for _, d := range apis {
+		if !d.Open() {
+			continue
+		}
+		local := true
+		for _, h := range d.Hosts {
+			if addr, _ := dockerHost(h, d.TLS); !loopbackAddr(addr) {
+				local = false
+			}
+		}
+		fnd := Finding{CheckID: "NET-001", Severity: Critical}
+		reach, who := "the network", "anyone who can connect"
+		if local {
+			fnd.Severity, reach, who = High, "every local account", "any local account, or container on the host's network,"
+		}
+		hosts := strings.Join(d.Hosts, ", ")
+		if d.TLS {
+			fnd.Title = "Docker API accepts clients without a certificate from " + reach
+			fnd.Detail = hosts + " with TLS but tlsverify=false; " + who + " can run a privileged container, which is root on this host"
+			fnd.Fix = "Require client certificates: drop tlsverify=false (--tlsverify=false, or \"tlsverify\": false in daemon.json) and give dockerd the CA that signs them (--tlscacert)"
+		} else {
+			fnd.Title = "Docker API without TLS is reachable from " + reach
+			fnd.Detail = hosts + "; " + who + " can run a privileged container, which is root on this host"
+			fnd.Fix = "Remove the tcp:// listener from dockerd (-H or \"hosts\" in daemon.json), or switch to TLS with client certificates (--tlsverify, --tlscacert)"
+		}
+		out = append(out, fnd)
+	}
+	return out
+}
+
 var exposedListeners = Check{
 	ID:    "NET-001",
 	Title: "Services listening on all interfaces",
@@ -67,10 +124,21 @@ var exposedListeners = Check{
 			return ""
 		}
 		seen := map[string]bool{}
-		var out []Finding
+		out := dockerAPIFindings(f.DockerAPI)
+		for _, d := range f.DockerAPI {
+			if d.Open() {
+				for _, h := range d.Hosts {
+					_, port := dockerHost(h, d.TLS)
+					seen["tcp/"+strconv.Itoa(port)] = true // reported from dockerd's settings
+				}
+			}
+		}
 		var others []string
 		for _, l := range listeners {
 			key := l.Proto + "/" + strconv.Itoa(l.Port)
+			if l.Proto == "tcp" && seen[key] {
+				continue
+			}
 			if l.Proto == "tcp" && l.Port == dockerAPIPort && !loopbackAddr(l.Addr) {
 				if !seen[key] {
 					seen[key] = true
