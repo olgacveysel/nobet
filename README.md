@@ -312,6 +312,7 @@ Measured with 50 hosts (the size nöbet is built for): a full scan takes about 1
 | ACC-005 | Critical / High | Accounts with an empty password that can log in; Critical when the account can become root |
 | ACC-007 | Medium / Low    | Passwords stored as DES or MD5 hashes, which a leaked `/etc/shadow` gives away quickly; Medium when the account can become root. Only the algorithm's name is read |
 | ACC-006 | Medium / Low    | Authorized SSH keys that have not logged in for 90 days, from sshd's log messages (see below); Medium when the key reaches an account that can become root |
+| ACC-008 | Critical / High | PAM auth stacks that let a wrong password through for su, sudo, sshd, login, Cockpit or polkit (a `sufficient pam_permit.so`, a `pam_deny.so` made optional…): Critical, any account becomes root. High when some accounts can su to root without a password (`pam_wheel.so trust`, a sufficient `pam_succeed_if.so`) |
 | LOG-001 | Medium / Low    | Login records not kept for 90 days: Medium when sshd logs no logins (`LogLevel`), nothing keeps its messages, or they only live in a journal in memory; Low when they go back less than 90 days on a system that is older than that |
 | NET-001 | Critical / High / Info | The Docker API open to clients without a certificate, from dockerd's own settings: TCP without TLS on any port, or TLS with `tlsverify=false` (Critical: root for anyone who can connect; High when bound to loopback, which is every local account); without root, a listener on port 2375. Databases and admin APIs listening on all interfaces, or published there by a container (named in the finding; also with Docker's `userland-proxy` off, when no socket listens) |
 | NET-002 | Medium / Low    | No host firewall filtering incoming traffic (ufw, firewalld, nftables, iptables); Medium when services are exposed. Low when a firewall is active but Docker publishes ports past it (see below) |
@@ -349,6 +350,8 @@ On a Kubernetes node (a kubelet, k3s or RKE2 is running), CTR-001 also lists the
 
 LOG-001 uses the same messages to tell whether you could find out, after the fact, who logged in: they should reach back 90 days. Short logs are only reported on a system older than they are (from the root file system's creation, `/etc/machine-id`, which a cloud VM writes at its first boot, or the `basesystem` package), so a new server does not get the finding; when the age cannot be told, the check says so.
 
+ACC-008 evaluates the auth stacks in `/etc/pam.d` the way libpam does (required, requisite, sufficient, optional and `[value=action]` controls, jumps, `include`, `@include` and `substack`) for an account that is not root and types a wrong password: password and token modules fail, `pam_rootok` fails, `pam_permit` succeeds, and modules it does not know are taken to have no say. Debian's `common-auth` ends in `required pam_permit.so` and is fine, because a wrong password never gets past its `pam_deny`; nöbet only reports a stack the password really gets through, and names the line that lets it. sshd counts only when it asks PAM for passwords (`UsePAM` with password or keyboard-interactive authentication). Module arguments do not leave the host, except for `pam_wheel`, `pam_succeed_if` and `pam_faillock`, whose arguments decide what they do.
+
 ACC-006 reads sshd's "Accepted publickey" messages, which name the key, from the journal and from `/var/log/auth.log`, `secure` and `messages` (rotated and gzipped copies included); only times, account names and key fingerprints leave the host. A key line counts as used when any account that reads that file logged in with it. It needs logs that reach back 90 days; when some key has no recent login and the logs are shorter (RHEL keeps its journal in memory and four weeks of `/var/log/secure` by default), the check is skipped and says how far back they go. A persistent journal (`mkdir -p /var/log/journal`) fixes that. Keys kept for emergencies can be allowlisted by fingerprint. The root access map shows each key's last login too.
 
 UPD-004 knows Ubuntu, Debian (including its free LTS period) and Raspbian, RHEL, Rocky Linux, AlmaLinux, CentOS and CentOS Stream, Oracle Linux, Fedora, Alpine, openSUSE Leap, SLES and Amazon Linux. Support dates come from [endoflife.date](https://endoflife.date) and are built into each release; nöbet does not go online for them. Rolling releases are skipped. Nöbet never refreshes metadata or installs anything; when there is no cache to read, the check is skipped and tells you which command would create one.
@@ -379,6 +382,7 @@ UPD-004 knows Ubuntu, Debian (including its free LTS period) and Raspbian, RHEL,
 - Any rule in Docker's `DOCKER-USER` chain counts as published ports being filtered there; the rules themselves are not evaluated.
 - CTR-001 looks at root's Docker daemon, root's podman, Incus, LXD, LXC containers root runs, and the pods on a Kubernetes node (through `crictl`; checked with containerd on k3s and with CRI-O). Pod security settings it does not see (seccomp, AppArmor, `allowPrivilegeEscalation`) are not reported. For LXC only the container's own config is read, not files it includes (`lxc.include`). Rootless containers are left out on purpose: they run as their account, so they cannot reach more of the host than that account can. For Docker and podman it assumes root in a container is root on the host, which Docker's `userns-remap` changes. For Incus and LXD, `raw.lxc` and `raw.idmap` settings are not evaluated.
 - NET-003 reads the kernel NFS server's exports; NFS-Ganesha and Samba shares are not looked at. Wildcard host names (`*.example.com`) and netgroups count as named hosts, and `0.0.0.0/0` as a network (nfs-utils 2.8.3 matches no client with it; `*` and `0.0.0.0/0.0.0.0` match every one).
+- ACC-008 reads `/etc/pam.d`, not the old single-file `/etc/pam.conf`, and knows how common modules answer a wrong password; a module it does not know (a custom one, `pam_exec`) is taken to have no say, so a backdoor built into a module of its own is not found. Conditions (`pam_succeed_if`, `pam_access`) are not evaluated.
 - Local scanning is Linux-only; from macOS or Windows, scan hosts over SSH.
 
 ## Roadmap
@@ -423,6 +427,7 @@ UPD-004 knows Ubuntu, Debian (including its free LTS period) and Raspbian, RHEL,
 - [x] ACLs in FS-003 and FS-004 (who can change files root runs, who can read private keys)
 - [x] Login records kept for 90 days (LOG-001)
 - [x] Weak password hashes (ACC-007)
+- [x] PAM stacks that skip the password (ACC-008)
 
 ## Project layout
 
