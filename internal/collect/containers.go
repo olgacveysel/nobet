@@ -124,7 +124,7 @@ if [ -n "$kube" ]; then
     if (p ~ /^\.status\.(metadata\.name|metadata\.namespace|image\.image|labels\.io\.kubernetes\.pod\.(name|namespace))$/ ||
         p ~ /^\.status\.mounts\.\[\]\.(hostPath|containerPath|readonly)$/ ||
         p ~ /^\.status\.linux\.namespaces\.options\.(pid|network|ipc)$/ ||
-        p ~ /^\.info\.config\.linux\.security_context\.privileged$/ ||
+        p ~ /^\.info\.(config\.linux\.security_context\.)?privileged$/ ||
         p ~ /^\.info\.runtimeSpec\.process\.capabilities\.bounding\.\[\]$/) print "k8s|" p "|" val
   }'
   if [ -z "$cri" ]; then
@@ -358,8 +358,10 @@ func kubeContainers(recs []*criRecord) []Container {
 			continue
 		}
 		pod := r.get(".status.labels.io.kubernetes.pod.namespace") + "/" + r.get(".status.labels.io.kubernetes.pod.name")
+		// containerd says privileged in the CRI config it keeps, CRI-O at
+		// the top of its info (checked: containerd 2.1, CRI-O 1.32).
 		c := Container{Runtime: "kubernetes", Name: pod + "/" + r.get(".status.metadata.name"), Image: r.get(".status.image.image"),
-			Privileged: r.get(".info.config.linux.security_context.privileged") == "true"}
+			Privileged: r.get(".info.config.linux.security_context.privileged") == "true" || r.get(".info.privileged") == "true"}
 		if p, ok := pods[pod]; ok {
 			if p.pid == "NODE" {
 				c.PidMode = "host"

@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- CTR-001 on Kubernetes nodes with CRI-O: privileged containers were not recognized (CRI-O reports the setting in another place than containerd), so a privileged pod only showed up through other risks such as host mounts. Checked against CRI-O 1.32.
+
 ## v0.5.0 — 2026-11-04
 
 Every common way to run containers is now covered, from Docker to Kubernetes nodes, and two more ways to root that hide in plain sight: a Docker API anyone can talk to, and password hashes anyone can read.

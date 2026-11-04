@@ -276,23 +276,30 @@ lxc.mount.entry = /lib lib none ro,bind 0 0
 lxc.mount.entry = /var/lib/lxc/hostdir mnt/hostdir none bind,create=dir 0 0
 `
 
-// k8sFiles are real crictl inspect and inspectp output from k3s 1.33
-// (containerd 2.1): pod priv is privileged, with hostPID, the host's /etc
-// and (read-only) /srv mounted, and a password in its environment, which
-// also shows in kubectl's last-applied annotation; pod caps adds SYS_ADMIN.
+// k8sFiles are real crictl inspect and inspectp output: from k3s 1.33
+// (containerd 2.1) in testdata/k8s, and from CRI-O 1.32 (Fedora 42, pods
+// made with crictl runp) in testdata/crio. Pod priv is privileged, with
+// hostPID (and on CRI-O host networking), the host's /etc and (read-only)
+// /srv mounted, and a password in its environment, which also shows in a
+// kubectl last-applied annotation; pod caps adds SYS_ADMIN.
 //
-//go:embed testdata/k8s/*.json
+//go:embed testdata/k8s/*.json testdata/crio/*.json
 var k8sFiles embed.FS
 
 func TestPodsScript(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("needs /bin/sh")
 	}
+	t.Run("containerd", func(t *testing.T) { testPodsScript(t, "k8s", "") })
+	t.Run("cri-o", func(t *testing.T) { testPodsScript(t, "crio", "host") })
+}
+
+func testPodsScript(t *testing.T, fixtures, privNet string) {
 	dir := t.TempDir()
 	bin := filepath.Join(dir, "bin")
 	os.MkdirAll(bin, 0o755)
 	for _, n := range []string{"priv-container", "priv-pod", "caps-container", "caps-pod"} {
-		b, err := k8sFiles.ReadFile("testdata/k8s/" + n + ".json")
+		b, err := k8sFiles.ReadFile("testdata/" + fixtures + "/" + n + ".json")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -342,7 +349,7 @@ esac
 	}
 	priv, caps := got[0], got[1]
 	if priv.Runtime != "kubernetes" || priv.Name != "default/priv/c" || priv.Image != "docker.io/library/busybox:1.37" ||
-		!priv.Privileged || priv.PidMode != "host" || priv.NetworkMode != "" || priv.CapAdd != nil {
+		!priv.Privileged || priv.PidMode != "host" || priv.NetworkMode != privNet || priv.CapAdd != nil {
 		t.Errorf("priv: %+v", priv)
 	}
 	if len(priv.Mounts) < 2 || priv.Mounts[0] != (Mount{Type: "bind", Source: "/etc", Destination: "/host/etc", RW: true}) ||
