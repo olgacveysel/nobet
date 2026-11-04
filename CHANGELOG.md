@@ -1,11 +1,25 @@
 # Changelog
 
-## Unreleased
+## v0.5.0 — 2026-11-04
 
-- NET-001 reads root's dockerd settings (command line, `DOCKER_TLS_VERIFY`, `daemon.json`) and reports its API open to clients without a certificate on any port: TCP without TLS, or TLS with `tlsverify=false` (Critical; High when bound to loopback). Before, only a listener on port 2375 was caught; it still is where the settings cannot be read. Checked against dockerd 29.9: `--tls` alone verifies client certificates, `tlsverify=false` does not.
-- FS-005 reports password hashes every account can read: `/etc/shadow`, `/etc/gshadow`, their backups (`shadow-`, `/var/backups/shadow.bak`), `/etc/security/opasswd`, and hashes left in `/etc/passwd`. Files with only locked or disabled entries do not count; the hashes never leave the host.
+Every common way to run containers is now covered, from Docker to Kubernetes nodes, and two more ways to root that hide in plain sight: a Docker API anyone can talk to, and password hashes anyone can read.
+
+**Containers**
 - CTR-001 covers plain LXC containers that root runs (`lxc-start`): privileged ones (no `lxc.idmap`) and host paths they can write, read from each running container's own config; `lxc.environment` values stay on the host. Containers an account runs for itself are left out.
 - CTR-001 covers the pods on a Kubernetes node (kubelet, k3s or RKE2), listed through `crictl`: privileged containers, host paths they can write, added capabilities such as `SYS_ADMIN`, and the host's PID namespace, named `namespace/pod/container`, with fixes in pod-spec terms. Only those settings leave the host, never environments or annotations. Checked on k3s 1.33 with containerd. System pods that need privileges can be allowlisted with `CTR-001 * kube-system/`.
+- CTR-001 findings always name the runtime (`(lxc)`, `(kubernetes, image ...)`).
+
+**Checks**
+- NET-001 reads root's dockerd settings (command line, `DOCKER_TLS_VERIFY`, `daemon.json`) and reports its API open to clients without a certificate on any port: TCP without TLS, or TLS with `tlsverify=false` (Critical; High when bound to loopback). Before, only a listener on port 2375 was caught; it still is where the settings cannot be read. Checked against dockerd 29.9: `--tls` alone verifies client certificates, `tlsverify=false` does not.
+- FS-005 reports password hashes every account can read: `/etc/shadow`, `/etc/gshadow`, their backups (`shadow-`, `/var/backups/shadow.bak`), `/etc/security/opasswd`, and hashes left in `/etc/passwd`. Files with only locked or disabled entries do not count; the hashes never leave the host.
+
+**Dependencies**
+- go-jose 4.1.7 (dashboard sign-in; fixes GHSA-r39w-98wm-9pp6 and GHSA-27pc-rm86-68pq, which nöbet's code does not reach) and gopdf 0.38.3.
+- OS support dates refreshed: Fedora 45 added, Fedora 43 ends 2026-12-01.
+
+**Upgrading**
+- Nothing to change: the new checks run on the next scan, with root or passwordless sudo like the other checks that read root's settings.
+- On Kubernetes nodes, expect findings for system pods that run privileged by design (kube-proxy, CNI and CSI agents); review and allowlist them (`CTR-001 * kube-system/`). Nodes need `crictl` (kubeadm installs it with cri-tools; k3s and RKE2 bring their own); without it, CTR-001 says so instead of listing a partial set.
 
 ## v0.4.0 — 2026-10-27
 
