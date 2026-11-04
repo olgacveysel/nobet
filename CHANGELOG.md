@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## v0.5.1 — 2026-11-04
+
+A fix for Kubernetes nodes that run CRI-O.
 
 - CTR-001 on Kubernetes nodes with CRI-O: privileged containers were not recognized (CRI-O reports the setting in another place than containerd), so a privileged pod only showed up through other risks such as host mounts. Checked against CRI-O 1.32.
 
