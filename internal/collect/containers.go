@@ -92,19 +92,43 @@ done
 ` + instancesScript + `echo "@@end"
 `
 
-// instancesScript lists Incus and LXD containers from their "[lxc monitor]
-// DIR NAME" processes, without the incus and lxc clients (the snap's
-// creates ~/snap for root). Each instance's backup.yaml, which the daemon
-// keeps with its whole configuration, is read through the monitor's root,
-// so snap LXD's own mount namespace is reached too. awk passes on only the
-// keys below: the rest (environment.* above all) stays on the host.
+// instancesScript lists Incus, LXD and plain LXC containers from their
+// "[lxc monitor] DIR NAME" processes run by root (an account's own LXC
+// containers cannot reach more than it), without the incus and lxc clients
+// (the snap's creates ~/snap for root). Each Incus or LXD instance's
+// backup.yaml, which the daemon keeps with its whole configuration, and an
+// LXC container's config are read through the monitor's root, so snap
+// LXD's own mount namespace is reached too. awk passes on only the keys
+// below: the rest (environment.* and lxc.environment above all) stays on
+// the host.
 const instancesScript = `procs() {
-  if command -v ps >/dev/null 2>&1; then ps -eo pid,args 2>/dev/null || ps -o pid,args
-  else for p in /proc/[0-9]*; do echo "${p#/proc/} $(tr '\0' ' ' 2>/dev/null < $p/cmdline)"; done; fi
+  if command -v ps >/dev/null 2>&1; then ps -eo pid,uid,args 2>/dev/null || ps -o pid,uid,args
+  else for p in /proc/[0-9]*; do echo "${p#/proc/} $(stat -c %u $p 2>/dev/null) $(tr '\0' ' ' 2>/dev/null < $p/cmdline)"; done; fi
 }
-procs | awk '$2 == "[lxc" && $3 == "monitor]" && NF == 5 { print $1, $4, $5 }' |
+procs | awk '$2 == "0" && $3 == "[lxc" && $4 == "monitor]" && NF == 6 { print $1, $5, $6 }' |
 while read -r pid dir name; do
-  case $dir in */incus/*) rt=incus ;; */lxd/*) rt=lxd ;; *) continue ;; esac
+  case $dir in */incus/*) rt=incus ;; */lxd/*) rt=lxd ;; *) rt=lxc ;; esac
+  if [ $rt = lxc ]; then
+    # LXC's own config: privileged without lxc.idmap; host paths it
+    # bind-mounts (idmap= in the options shifts them like Incus's shift).
+    f=/proc/$pid/root$dir/$name/config
+    if [ ! -r "$f" ]; then echo "@@lxc error cannot read $dir/$name/config"; continue; fi
+    echo "@@instance lxc $name"
+    awk '{ l = $0; sub(/^[ \t]+/, "", l) }
+      l ~ /^lxc\.idmap[ \t]*=/ { idmap = 1 }
+      l ~ /^lxc\.mount\.entry[ \t]*=/ {
+        v = l; sub(/^[^=]*=[ \t]*/, "", v); split(v, a, /[ \t]+/)
+        if (a[1] !~ /^\//) next
+        n++; d = "m" n
+        print "dev|" d "|type|" (a[1] ~ /^\/dev\// ? "unix-block" : "disk")
+        print "dev|" d "|source|" a[1]
+        print "dev|" d "|path|/" a[2]
+        if (("," a[4] ",") ~ /,ro,/) print "dev|" d "|readonly|true"
+        if (a[4] ~ /idmap=/) print "dev|" d "|shift|true"
+      }
+      END { print "cfg|security.privileged|" (idmap ? "false" : "true"); print "cfg|volatile.last_state.power|RUNNING" }' "$f"
+    continue
+  fi
   f=/proc/$pid/root$dir/$name/backup.yaml
   if [ ! -r "$f" ]; then echo "@@$rt error cannot read $dir/$name/backup.yaml"; continue; fi
   echo "@@instance $rt $name"

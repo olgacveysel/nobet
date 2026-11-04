@@ -149,3 +149,16 @@ func TestInstanceRisks(t *testing.T) {
 		t.Errorf("detail: %s", got[1].Detail)
 	}
 }
+
+func TestLXCRisks(t *testing.T) {
+	f := &collect.Facts{IsRoot: true, Errors: map[string]string{}, ControlSockets: []string{},
+		Containers: []collect.Container{{Runtime: "lxc", Name: "p1", Privileged: true, Mounts: []collect.Mount{
+			{Type: "bind", Source: "/lib", Destination: "/lib"},
+			{Type: "bind", Source: "/etc", Destination: "/mnt/hostetc", RW: true},
+		}}}}
+	got, _ := containerEscape.Run(f)
+	if len(got) != 1 || got[0].Severity != High || !strings.Contains(got[0].Detail, "privileged LXC container (no lxc.idmap") ||
+		!strings.Contains(got[0].Detail, "can write the host's /etc") || strings.Contains(got[0].Detail, "/lib") || !strings.Contains(got[0].Fix, "lxc.idmap") {
+		t.Errorf("got %+v", got)
+	}
+}

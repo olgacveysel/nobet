@@ -163,16 +163,24 @@ func TestInstancesScript(t *testing.T) {
 	put(dir+"/94/var/lib/incus/containers/c1/backup.yaml", priv)
 	put(dir+"/95/var/lib/incus/containers/c4/backup.yaml", strings.Replace(priv, "volatile.last_state.power: STOPPED", "volatile.last_state.power: RUNNING", 2))
 	put(dir+"/96/var/snap/lxd/common/lxd/containers/web/backup.yaml", unpriv)
+	// Plain LXC 6.0 (Debian 13, busybox template): a privileged container
+	// with host /etc and /srv mounted, and an unprivileged one (lxc.idmap)
+	// with a host directory; an account's own container is left out.
+	put(dir+"/97/var/lib/lxc/p1/config", lxcPrivileged)
+	put(dir+"/98/var/lib/lxc/u1/config", lxcUnprivileged)
+	put(dir+"/99/home/bob/.local/share/lxc/b1/config", lxcPrivileged)
 	ps := `#!/bin/sh
 cat <<'X'
-    PID COMMAND
-      1 /sbin/init
-     93 [lxc monitor] /var/lib/incus/containers c2
-     94 [lxc monitor] /var/lib/incus/containers c1
-     95 [lxc monitor] /var/lib/incus/containers c4
-     96 [lxc monitor] /var/snap/lxd/common/lxd/containers web
-     97 [lxc monitor] /var/lib/lxc old
-     98 grep [lxc monitor] x
+    PID   UID COMMAND
+      1     0 /sbin/init
+     93     0 [lxc monitor] /var/lib/incus/containers c2
+     94     0 [lxc monitor] /var/lib/incus/containers c1
+     95     0 [lxc monitor] /var/lib/incus/containers c4
+     96     0 [lxc monitor] /var/snap/lxd/common/lxd/containers web
+     97     0 [lxc monitor] /var/lib/lxc p1
+     98     0 [lxc monitor] /var/lib/lxc u1
+     99  1000 [lxc monitor] /home/bob/.local/share/lxc b1
+    100     0 grep [lxc monitor] x
 X
 `
 	os.WriteFile(filepath.Join(bin, "ps"), []byte(ps), 0o755)
@@ -184,7 +192,7 @@ X
 		if err != nil {
 			t.Fatal(err)
 		}
-		if strings.Contains(string(out), "labsecret") {
+		if strings.Contains(string(out), "labsecret") || strings.Contains(string(out), "DB_PASSWORD") {
 			t.Fatalf("an instance's environment left the host:\n%s", out)
 		}
 		return string(out)
@@ -196,7 +204,14 @@ X
 	web := c2
 	web.Runtime, web.Name = "lxd", "web"
 	c4 := Container{Runtime: "incus", Name: "c4", Image: "Alpine 3.22", Privileged: true}
-	if want := []Container{c2, c4, web}; why != "" || !reflect.DeepEqual(got, want) {
+	bind := func(src, dst string, rw bool) Mount {
+		return Mount{Type: "bind", Source: src, Destination: dst, RW: rw}
+	}
+	p1 := Container{Runtime: "lxc", Name: "p1", Privileged: true, Mounts: []Mount{
+		bind("/lib", "/lib", false), bind("/usr/lib", "/usr/lib", false), bind("/lib64", "/lib64", false), bind("/usr/lib64", "/usr/lib64", false),
+		bind("/sys/kernel/security", "/sys/kernel/security", false), bind("/etc", "/mnt/hostetc", true), bind("/srv", "/srv", false)}}
+	u1 := Container{Runtime: "lxc", Name: "u1"} // its plain host directory does not count
+	if want := []Container{c2, c4, web, p1, u1}; why != "" || !reflect.DeepEqual(got, want) {
 		t.Errorf("got  %+v (%q)\nwant %+v", got, why, want)
 	}
 
@@ -216,3 +231,47 @@ X
 		t.Errorf("unreadable backup.yaml: %q %+v", why, got)
 	}
 }
+
+// lxcPrivileged and lxcUnprivileged are LXC 6.0 configs from the lab
+// (Debian 13, lxc-create -t busybox), with mounts and an environment
+// variable added.
+const lxcPrivileged = `# Template used to create this container: /usr/share/lxc/templates/lxc-busybox
+lxc.net.0.type = empty
+lxc.apparmor.profile = unconfined
+lxc.apparmor.allow_nesting = 1
+lxc.rootfs.path = dir:/var/lib/lxc/p1/rootfs
+lxc.signal.halt = SIGUSR1
+lxc.signal.reboot = SIGTERM
+lxc.uts.name = "p1"
+lxc.autodev = 1
+lxc.tty.max = 5
+lxc.pty.max = 1
+lxc.cap.drop = sys_module mac_admin mac_override sys_time
+lxc.mount.auto = cgroup:mixed proc:mixed sys:ro
+lxc.mount.entry = shm dev/shm tmpfs defaults,create=dir 0 0
+lxc.mount.entry = mqueue dev/mqueue mqueue defaults,optional,create=dir 0 0
+lxc.mount.entry = /lib lib none ro,bind 0 0
+lxc.mount.entry = /usr/lib usr/lib none ro,bind 0 0
+lxc.mount.entry = /lib64 lib64 none ro,bind 0 0
+lxc.mount.entry = /usr/lib64 usr/lib64 none ro,bind 0 0
+lxc.mount.entry = /sys/kernel/security sys/kernel/security none ro,bind,optional 0 0
+lxc.mount.entry = /etc mnt/hostetc none bind,create=dir 0 0
+lxc.mount.entry = /srv srv none bind,ro,create=dir 0 0
+lxc.environment = DB_PASSWORD=labsecret4
+`
+
+const lxcUnprivileged = `lxc.idmap = u 0 100000 65536
+lxc.idmap = g 0 100000 65536
+lxc.rootfs.path = dir:/var/lib/lxc/u1/rootfs
+lxc.signal.halt = SIGUSR1
+lxc.signal.reboot = SIGTERM
+lxc.uts.name = "u1"
+lxc.autodev = 1
+lxc.tty.max = 5
+lxc.pty.max = 1
+lxc.cap.drop = sys_module mac_admin mac_override sys_time
+lxc.mount.auto = cgroup:mixed proc:mixed sys:ro
+lxc.mount.entry = shm dev/shm tmpfs defaults,create=dir 0 0
+lxc.mount.entry = /lib lib none ro,bind 0 0
+lxc.mount.entry = /var/lib/lxc/hostdir mnt/hostdir none bind,create=dir 0 0
+`

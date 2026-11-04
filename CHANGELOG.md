@@ -4,6 +4,7 @@
 
 - NET-001 reads root's dockerd settings (command line, `DOCKER_TLS_VERIFY`, `daemon.json`) and reports its API open to clients without a certificate on any port: TCP without TLS, or TLS with `tlsverify=false` (Critical; High when bound to loopback). Before, only a listener on port 2375 was caught; it still is where the settings cannot be read. Checked against dockerd 29.9: `--tls` alone verifies client certificates, `tlsverify=false` does not.
 - FS-005 reports password hashes every account can read: `/etc/shadow`, `/etc/gshadow`, their backups (`shadow-`, `/var/backups/shadow.bak`), `/etc/security/opasswd`, and hashes left in `/etc/passwd`. Files with only locked or disabled entries do not count; the hashes never leave the host.
+- CTR-001 covers plain LXC containers that root runs (`lxc-start`): privileged ones (no `lxc.idmap`) and host paths they can write, read from each running container's own config; `lxc.environment` values stay on the host. Containers an account runs for itself are left out.
 
 ## v0.4.0 — 2026-10-27
 

@@ -60,6 +60,8 @@ var containerEscape = Check{
 			detail := strings.Join(reasons, "; ")
 			if c.Image != "" {
 				detail += fmt.Sprintf(" (%s, image %s)", c.Runtime, c.Image)
+			} else {
+				detail += " (" + c.Runtime + ")"
 			}
 			out = append(out, Finding{CheckID: "CTR-001", Severity: sev, Title: title, Detail: detail,
 				Fix: strings.Join(fixes, " ") + " Allowlist the container by name if it is trusted with root on this host."})
@@ -89,6 +91,9 @@ func containerRisks(c collect.Container, sockets []string) (Severity, []string, 
 		client := map[string]string{"incus": "incus", "lxd": "lxc"}[c.Runtime]
 		add(High, "is a privileged container (security.privileged: root in it is root on the host, without a user namespace)",
 			"Make it unprivileged: "+client+" config unset "+c.Name+" security.privileged, then restart it.")
+	case c.Privileged && c.Runtime == "lxc":
+		add(High, "is a privileged LXC container (no lxc.idmap: root in it is root on the host, without a user namespace)",
+			"Make it unprivileged: add lxc.idmap entries to its config and shift its files to them, or recreate it as an unprivileged container.")
 	case c.Privileged:
 		add(High, "runs privileged (all capabilities and host devices)", "Drop --privileged and add only the capabilities or devices it needs.")
 	}
