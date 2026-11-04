@@ -162,3 +162,24 @@ func TestLXCRisks(t *testing.T) {
 		t.Errorf("got %+v", got)
 	}
 }
+
+func TestKubernetesRisks(t *testing.T) {
+	f := &collect.Facts{IsRoot: true, Errors: map[string]string{}, ControlSockets: []string{},
+		Containers: []collect.Container{
+			{Runtime: "kubernetes", Name: "default/priv/c", Image: "busybox:1.37", Privileged: true, PidMode: "host",
+				Mounts: []collect.Mount{{Type: "bind", Source: "/etc", Destination: "/host/etc", RW: true}}},
+			{Runtime: "kubernetes", Name: "default/caps/c", CapAdd: []string{"CAP_CHOWN", "CAP_SYS_ADMIN"}},
+			{Runtime: "kubernetes", Name: "default/plain/c", CapAdd: []string{"CAP_CHOWN", "CAP_KILL"}},
+		}}
+	got, _ := containerEscape.Run(f)
+	if len(got) != 2 {
+		t.Fatalf("got %+v", got)
+	}
+	if got[0].Title != "Container default/priv/c can take over the host" || !strings.Contains(got[0].Fix, "securityContext.privileged") ||
+		!strings.Contains(got[0].Fix, "hostPID") || !strings.Contains(got[0].Detail, "(kubernetes, image busybox:1.37)") {
+		t.Errorf("priv: %+v", got[0])
+	}
+	if !strings.Contains(got[1].Detail, "has the SYS_ADMIN capability") || !strings.Contains(got[1].Fix, "securityContext.capabilities.add") {
+		t.Errorf("caps: %+v", got[1])
+	}
+}

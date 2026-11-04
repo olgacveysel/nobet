@@ -1,0 +1,504 @@
+{
+  "info": {
+    "cniResult": {
+      "DNS": [
+        {},
+        {}
+      ],
+      "Interfaces": {
+        "cni0": {
+          "IPConfigs": null,
+          "Mac": "92:27:33:db:87:0c",
+          "PciID": "",
+          "Sandbox": "",
+          "SocketPath": ""
+        },
+        "eth0": {
+          "IPConfigs": [
+            {
+              "Gateway": "10.42.0.1",
+              "IP": "10.42.0.4"
+            }
+          ],
+          "Mac": "16:d7:95:1d:66:a8",
+          "PciID": "",
+          "Sandbox": "/var/run/netns/cni-f8379edc-eb41-cb55-d065-0b69e011520a",
+          "SocketPath": ""
+        },
+        "lo": {
+          "IPConfigs": [
+            {
+              "Gateway": "",
+              "IP": "127.0.0.1"
+            },
+            {
+              "Gateway": "",
+              "IP": "::1"
+            }
+          ],
+          "Mac": "00:00:00:00:00:00",
+          "PciID": "",
+          "Sandbox": "/var/run/netns/cni-f8379edc-eb41-cb55-d065-0b69e011520a",
+          "SocketPath": ""
+        },
+        "vethded8783c": {
+          "IPConfigs": null,
+          "Mac": "5a:3c:9f:a7:de:c5",
+          "PciID": "",
+          "Sandbox": "",
+          "SocketPath": ""
+        }
+      },
+      "Routes": [
+        {
+          "dst": "10.42.0.0/16"
+        },
+        {
+          "dst": "0.0.0.0/0",
+          "gw": "10.42.0.1"
+        }
+      ]
+    },
+    "config": {
+      "annotations": {
+        "kubectl.kubernetes.io/last-applied-configuration": "{\"apiVersion\":\"v1\",\"kind\":\"Pod\",\"metadata\":{\"annotations\":{},\"name\":\"priv\",\"namespace\":\"default\"},\"spec\":{\"containers\":[{\"command\":[\"sleep\",\"3600\"],\"env\":[{\"name\":\"DB_PASSWORD\",\"value\":\"labsecret5\"}],\"image\":\"docker.io/library/busybox:1.37\",\"name\":\"c\",\"securityContext\":{\"privileged\":true},\"volumeMounts\":[{\"mountPath\":\"/host/etc\",\"name\":\"etc\"},{\"mountPath\":\"/host/srv\",\"name\":\"srv\",\"readOnly\":true}]}],\"hostPID\":true,\"volumes\":[{\"hostPath\":{\"path\":\"/etc\"},\"name\":\"etc\"},{\"hostPath\":{\"path\":\"/srv\",\"type\":\"DirectoryOrCreate\"},\"name\":\"srv\"}]}}\n",
+        "kubernetes.io/config.seen": "2026-11-04T12:28:35.597843606Z",
+        "kubernetes.io/config.source": "api"
+      },
+      "dns_config": {
+        "options": [
+          "ndots:5"
+        ],
+        "searches": [
+          "default.svc.cluster.local",
+          "svc.cluster.local",
+          "cluster.local"
+        ],
+        "servers": [
+          "10.43.0.10"
+        ]
+      },
+      "hostname": "priv",
+      "labels": {
+        "io.kubernetes.pod.name": "priv",
+        "io.kubernetes.pod.namespace": "default",
+        "io.kubernetes.pod.uid": "7b15a72d-cbc1-40d2-a266-55c965eb2bc7"
+      },
+      "linux": {
+        "cgroup_parent": "/kubepods/besteffort/pod7b15a72d-cbc1-40d2-a266-55c965eb2bc7",
+        "overhead": {},
+        "resources": {
+          "cpu_shares": 2
+        },
+        "security_context": {
+          "namespace_options": {
+            "pid": 2,
+            "userns_options": {
+              "mode": 2
+            }
+          },
+          "privileged": true,
+          "seccomp": {}
+        }
+      },
+      "log_directory": "/var/log/pods/default_priv_7b15a72d-cbc1-40d2-a266-55c965eb2bc7",
+      "metadata": {
+        "name": "priv",
+        "namespace": "default",
+        "uid": "7b15a72d-cbc1-40d2-a266-55c965eb2bc7"
+      }
+    },
+    "image": "docker.io/rancher/mirrored-pause:3.6",
+    "netNamespaceClosed": false,
+    "pid": 925,
+    "processStatus": "running",
+    "runtimeOptions": null,
+    "runtimeSpec": {
+      "annotations": {
+        "io.kubernetes.cri.container-type": "sandbox",
+        "io.kubernetes.cri.podsandbox.image-name": "rancher/mirrored-pause:3.6",
+        "io.kubernetes.cri.sandbox-cpu-period": "0",
+        "io.kubernetes.cri.sandbox-cpu-quota": "0",
+        "io.kubernetes.cri.sandbox-cpu-shares": "2",
+        "io.kubernetes.cri.sandbox-id": "1f7682f60f5294b40b74ec09b9b7d3f85595a1d613f3b143a1435d91c6794b90",
+        "io.kubernetes.cri.sandbox-log-directory": "/var/log/pods/default_priv_7b15a72d-cbc1-40d2-a266-55c965eb2bc7",
+        "io.kubernetes.cri.sandbox-memory": "0",
+        "io.kubernetes.cri.sandbox-name": "priv",
+        "io.kubernetes.cri.sandbox-namespace": "default",
+        "io.kubernetes.cri.sandbox-uid": "7b15a72d-cbc1-40d2-a266-55c965eb2bc7"
+      },
+      "hostname": "priv",
+      "linux": {
+        "cgroupsPath": "/kubepods/besteffort/pod7b15a72d-cbc1-40d2-a266-55c965eb2bc7/1f7682f60f5294b40b74ec09b9b7d3f85595a1d613f3b143a1435d91c6794b90",
+        "maskedPaths": [
+          "/proc/acpi",
+          "/proc/asound",
+          "/proc/kcore",
+          "/proc/keys",
+          "/proc/latency_stats",
+          "/proc/timer_list",
+          "/proc/timer_stats",
+          "/proc/sched_debug",
+          "/sys/firmware",
+          "/sys/devices/virtual/powercap",
+          "/proc/scsi"
+        ],
+        "namespaces": [
+          {
+            "type": "ipc"
+          },
+          {
+            "type": "uts"
+          },
+          {
+            "type": "mount"
+          },
+          {
+            "path": "/var/run/netns/cni-f8379edc-eb41-cb55-d065-0b69e011520a",
+            "type": "network"
+          }
+        ],
+        "readonlyPaths": [
+          "/proc/bus",
+          "/proc/fs",
+          "/proc/irq",
+          "/proc/sys",
+          "/proc/sysrq-trigger"
+        ],
+        "resources": {
+          "cpu": {
+            "shares": 2
+          },
+          "devices": [
+            {
+              "access": "rwm",
+              "allow": false
+            }
+          ]
+        },
+        "sysctl": {
+          "net.ipv4.ip_unprivileged_port_start": "0",
+          "net.ipv4.ping_group_range": "0 2147483647"
+        }
+      },
+      "mounts": [
+        {
+          "destination": "/proc",
+          "options": [
+            "nosuid",
+            "noexec",
+            "nodev"
+          ],
+          "source": "proc",
+          "type": "proc"
+        },
+        {
+          "destination": "/dev",
+          "options": [
+            "nosuid",
+            "strictatime",
+            "mode=755",
+            "size=65536k"
+          ],
+          "source": "tmpfs",
+          "type": "tmpfs"
+        },
+        {
+          "destination": "/dev/pts",
+          "options": [
+            "nosuid",
+            "noexec",
+            "newinstance",
+            "ptmxmode=0666",
+            "mode=0620",
+            "gid=5"
+          ],
+          "source": "devpts",
+          "type": "devpts"
+        },
+        {
+          "destination": "/dev/mqueue",
+          "options": [
+            "nosuid",
+            "noexec",
+            "nodev"
+          ],
+          "source": "mqueue",
+          "type": "mqueue"
+        },
+        {
+          "destination": "/sys",
+          "options": [
+            "nosuid",
+            "noexec",
+            "nodev",
+            "rw"
+          ],
+          "source": "sysfs",
+          "type": "sysfs"
+        },
+        {
+          "destination": "/dev/shm",
+          "options": [
+            "rbind",
+            "ro",
+            "nosuid",
+            "nodev",
+            "noexec"
+          ],
+          "source": "/run/k3s/containerd/io.containerd.grpc.v1.cri/sandboxes/1f7682f60f5294b40b74ec09b9b7d3f85595a1d613f3b143a1435d91c6794b90/shm",
+          "type": "bind"
+        },
+        {
+          "destination": "/etc/resolv.conf",
+          "options": [
+            "rbind",
+            "ro",
+            "nosuid",
+            "nodev",
+            "noexec"
+          ],
+          "source": "/var/lib/rancher/k3s/agent/containerd/io.containerd.grpc.v1.cri/sandboxes/1f7682f60f5294b40b74ec09b9b7d3f85595a1d613f3b143a1435d91c6794b90/resolv.conf",
+          "type": "bind"
+        }
+      ],
+      "ociVersion": "1.2.1",
+      "process": {
+        "args": [
+          "/pause"
+        ],
+        "capabilities": {
+          "bounding": [
+            "CAP_CHOWN",
+            "CAP_DAC_OVERRIDE",
+            "CAP_FSETID",
+            "CAP_FOWNER",
+            "CAP_MKNOD",
+            "CAP_NET_RAW",
+            "CAP_SETGID",
+            "CAP_SETUID",
+            "CAP_SETFCAP",
+            "CAP_SETPCAP",
+            "CAP_NET_BIND_SERVICE",
+            "CAP_SYS_CHROOT",
+            "CAP_KILL",
+            "CAP_AUDIT_WRITE"
+          ],
+          "effective": [
+            "CAP_CHOWN",
+            "CAP_DAC_OVERRIDE",
+            "CAP_FSETID",
+            "CAP_FOWNER",
+            "CAP_MKNOD",
+            "CAP_NET_RAW",
+            "CAP_SETGID",
+            "CAP_SETUID",
+            "CAP_SETFCAP",
+            "CAP_SETPCAP",
+            "CAP_NET_BIND_SERVICE",
+            "CAP_SYS_CHROOT",
+            "CAP_KILL",
+            "CAP_AUDIT_WRITE"
+          ],
+          "permitted": [
+            "CAP_CHOWN",
+            "CAP_DAC_OVERRIDE",
+            "CAP_FSETID",
+            "CAP_FOWNER",
+            "CAP_MKNOD",
+            "CAP_NET_RAW",
+            "CAP_SETGID",
+            "CAP_SETUID",
+            "CAP_SETFCAP",
+            "CAP_SETPCAP",
+            "CAP_NET_BIND_SERVICE",
+            "CAP_SYS_CHROOT",
+            "CAP_KILL",
+            "CAP_AUDIT_WRITE"
+          ]
+        },
+        "cwd": "/",
+        "env": [
+          "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+        ],
+        "noNewPrivileges": true,
+        "oomScoreAdj": -998,
+        "user": {
+          "additionalGids": [
+            65535
+          ],
+          "gid": 65535,
+          "uid": 65535
+        }
+      },
+      "root": {
+        "path": "rootfs",
+        "readonly": true
+      }
+    },
+    "runtimeType": "io.containerd.runc.v2",
+    "sandboxMetadata": {
+      "Metadata": {
+        "AdditionalIPs": null,
+        "CNIResult": {
+          "DNS": [
+            {},
+            {}
+          ],
+          "Interfaces": {
+            "cni0": {
+              "IPConfigs": null,
+              "Mac": "92:27:33:db:87:0c",
+              "PciID": "",
+              "Sandbox": "",
+              "SocketPath": ""
+            },
+            "eth0": {
+              "IPConfigs": [
+                {
+                  "Gateway": "10.42.0.1",
+                  "IP": "10.42.0.4"
+                }
+              ],
+              "Mac": "16:d7:95:1d:66:a8",
+              "PciID": "",
+              "Sandbox": "/var/run/netns/cni-f8379edc-eb41-cb55-d065-0b69e011520a",
+              "SocketPath": ""
+            },
+            "lo": {
+              "IPConfigs": [
+                {
+                  "Gateway": "",
+                  "IP": "127.0.0.1"
+                },
+                {
+                  "Gateway": "",
+                  "IP": "::1"
+                }
+              ],
+              "Mac": "00:00:00:00:00:00",
+              "PciID": "",
+              "Sandbox": "/var/run/netns/cni-f8379edc-eb41-cb55-d065-0b69e011520a",
+              "SocketPath": ""
+            },
+            "vethded8783c": {
+              "IPConfigs": null,
+              "Mac": "5a:3c:9f:a7:de:c5",
+              "PciID": "",
+              "Sandbox": "",
+              "SocketPath": ""
+            }
+          },
+          "Routes": [
+            {
+              "dst": "10.42.0.0/16"
+            },
+            {
+              "dst": "0.0.0.0/0",
+              "gw": "10.42.0.1"
+            }
+          ]
+        },
+        "Config": {
+          "annotations": {
+            "kubectl.kubernetes.io/last-applied-configuration": "{\"apiVersion\":\"v1\",\"kind\":\"Pod\",\"metadata\":{\"annotations\":{},\"name\":\"priv\",\"namespace\":\"default\"},\"spec\":{\"containers\":[{\"command\":[\"sleep\",\"3600\"],\"env\":[{\"name\":\"DB_PASSWORD\",\"value\":\"labsecret5\"}],\"image\":\"docker.io/library/busybox:1.37\",\"name\":\"c\",\"securityContext\":{\"privileged\":true},\"volumeMounts\":[{\"mountPath\":\"/host/etc\",\"name\":\"etc\"},{\"mountPath\":\"/host/srv\",\"name\":\"srv\",\"readOnly\":true}]}],\"hostPID\":true,\"volumes\":[{\"hostPath\":{\"path\":\"/etc\"},\"name\":\"etc\"},{\"hostPath\":{\"path\":\"/srv\",\"type\":\"DirectoryOrCreate\"},\"name\":\"srv\"}]}}\n",
+            "kubernetes.io/config.seen": "2026-11-04T12:28:35.597843606Z",
+            "kubernetes.io/config.source": "api"
+          },
+          "dns_config": {
+            "options": [
+              "ndots:5"
+            ],
+            "searches": [
+              "default.svc.cluster.local",
+              "svc.cluster.local",
+              "cluster.local"
+            ],
+            "servers": [
+              "10.43.0.10"
+            ]
+          },
+          "hostname": "priv",
+          "labels": {
+            "io.kubernetes.pod.name": "priv",
+            "io.kubernetes.pod.namespace": "default",
+            "io.kubernetes.pod.uid": "7b15a72d-cbc1-40d2-a266-55c965eb2bc7"
+          },
+          "linux": {
+            "cgroup_parent": "/kubepods/besteffort/pod7b15a72d-cbc1-40d2-a266-55c965eb2bc7",
+            "overhead": {},
+            "resources": {
+              "cpu_shares": 2
+            },
+            "security_context": {
+              "namespace_options": {
+                "pid": 2,
+                "userns_options": {
+                  "mode": 2
+                }
+              },
+              "privileged": true,
+              "seccomp": {}
+            }
+          },
+          "log_directory": "/var/log/pods/default_priv_7b15a72d-cbc1-40d2-a266-55c965eb2bc7",
+          "metadata": {
+            "name": "priv",
+            "namespace": "default",
+            "uid": "7b15a72d-cbc1-40d2-a266-55c965eb2bc7"
+          }
+        },
+        "ID": "1f7682f60f5294b40b74ec09b9b7d3f85595a1d613f3b143a1435d91c6794b90",
+        "IP": "10.42.0.4",
+        "Name": "priv_default_7b15a72d-cbc1-40d2-a266-55c965eb2bc7_0",
+        "NetNSPath": "/var/run/netns/cni-f8379edc-eb41-cb55-d065-0b69e011520a",
+        "ProcessLabel": "",
+        "RuntimeHandler": ""
+      },
+      "Version": "v1"
+    },
+    "snapshotKey": "1f7682f60f5294b40b74ec09b9b7d3f85595a1d613f3b143a1435d91c6794b90",
+    "snapshotter": "overlayfs"
+  },
+  "status": {
+    "annotations": {
+      "kubectl.kubernetes.io/last-applied-configuration": "{\"apiVersion\":\"v1\",\"kind\":\"Pod\",\"metadata\":{\"annotations\":{},\"name\":\"priv\",\"namespace\":\"default\"},\"spec\":{\"containers\":[{\"command\":[\"sleep\",\"3600\"],\"env\":[{\"name\":\"DB_PASSWORD\",\"value\":\"labsecret5\"}],\"image\":\"docker.io/library/busybox:1.37\",\"name\":\"c\",\"securityContext\":{\"privileged\":true},\"volumeMounts\":[{\"mountPath\":\"/host/etc\",\"name\":\"etc\"},{\"mountPath\":\"/host/srv\",\"name\":\"srv\",\"readOnly\":true}]}],\"hostPID\":true,\"volumes\":[{\"hostPath\":{\"path\":\"/etc\"},\"name\":\"etc\"},{\"hostPath\":{\"path\":\"/srv\",\"type\":\"DirectoryOrCreate\"},\"name\":\"srv\"}]}}\n",
+      "kubernetes.io/config.seen": "2026-11-04T12:28:35.597843606Z",
+      "kubernetes.io/config.source": "api"
+    },
+    "createdAt": "2026-11-04T12:28:37.144967798Z",
+    "id": "1f7682f60f5294b40b74ec09b9b7d3f85595a1d613f3b143a1435d91c6794b90",
+    "labels": {
+      "io.kubernetes.pod.name": "priv",
+      "io.kubernetes.pod.namespace": "default",
+      "io.kubernetes.pod.uid": "7b15a72d-cbc1-40d2-a266-55c965eb2bc7"
+    },
+    "linux": {
+      "namespaces": {
+        "options": {
+          "ipc": "POD",
+          "network": "POD",
+          "pid": "NODE",
+          "targetId": "",
+          "usernsOptions": {
+            "gids": [],
+            "mode": "NODE",
+            "uids": []
+          }
+        }
+      }
+    },
+    "metadata": {
+      "attempt": 0,
+      "name": "priv",
+      "namespace": "default",
+      "uid": "7b15a72d-cbc1-40d2-a266-55c965eb2bc7"
+    },
+    "network": {
+      "additionalIps": [],
+      "ip": "10.42.0.4"
+    },
+    "runtimeHandler": "",
+    "state": "SANDBOX_READY"
+  }
+}

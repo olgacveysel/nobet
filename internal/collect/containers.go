@@ -89,7 +89,54 @@ for rt in docker podman; do
   echo "@@$rt"
   [ -z "$ids" ] || $rt inspect --format '` + containerFormat + `' $ids 2>/dev/null || echo "@@$rt error inspect failed"
 done
-` + instancesScript + `echo "@@end"
+` + instancesScript + podsScript + `echo "@@end"
+`
+
+// podsScript lists the running Kubernetes containers on a node through
+// crictl, which asks the kubelet's container runtime (containerd or CRI-O)
+// and changes nothing. Only on a node: a kubelet (or k3s, or RKE2, which
+// run their own) is running. crictl inspect shows every container's
+// environment, and pods carry annotations that can hold their whole spec,
+// so awk follows the JSON's nesting and passes on only the paths below.
+const podsScript = `kube=
+for p in /proc/[0-9]*; do
+  { read -r comm < $p/comm; } 2>/dev/null || continue
+  case $comm in kubelet | k3s | k3s-server | k3s-agent | rke2) kube=$comm; break ;; esac
+done
+if [ -n "$kube" ]; then
+  cri=$(command -v crictl 2>/dev/null)
+  if [ -z "$cri" ] && [ -x /var/lib/rancher/rke2/bin/crictl ]; then
+    cri=/var/lib/rancher/rke2/bin/crictl
+    export CRI_CONFIG_FILE=/var/lib/rancher/rke2/agent/etc/crictl.yaml
+  fi
+  only='{
+    line = $0; sub(/^[ \t]+/, "", line); sub(/[ \t]*,?[ \t]*$/, "", line)
+    key = ""; val = line
+    if (match(line, /^"[^"]*"[ \t]*:/)) {
+      key = substr(line, 2, RLENGTH - 1); sub(/"[ \t]*:$/, "", key)
+      val = substr(line, RLENGTH + 1); sub(/^[ \t]+/, "", val)
+    }
+    if (val == "{" && key == "" && !open) { open = 1; next }
+    if (val == "{" || val == "[") { d++; st[d] = (key == "" ? "[]" : key); next }
+    if (val == "}" || val == "]") { if (d > 0) d--; else open = 0; next }
+    p = ""; for (i = 1; i <= d; i++) p = p "." st[i]
+    p = p "." (key == "" ? "[]" : key)
+    if (p ~ /^\.status\.(metadata\.name|metadata\.namespace|image\.image|labels\.io\.kubernetes\.pod\.(name|namespace))$/ ||
+        p ~ /^\.status\.mounts\.\[\]\.(hostPath|containerPath|readonly)$/ ||
+        p ~ /^\.status\.linux\.namespaces\.options\.(pid|network|ipc)$/ ||
+        p ~ /^\.info\.config\.linux\.security_context\.privileged$/ ||
+        p ~ /^\.info\.runtimeSpec\.process\.capabilities\.bounding\.\[\]$/) print "k8s|" p "|" val
+  }'
+  if [ -z "$cri" ]; then
+    echo "@@kubernetes error $kube is running but crictl is not installed, so its pods cannot be listed"
+  elif ! pods=$($cri pods -q --state ready 2>/dev/null) || ! ctrs=$($cri ps -q --state running 2>/dev/null); then
+    echo "@@kubernetes error crictl cannot reach the container runtime"
+  else
+    echo "@@kubernetes"
+    for id in $pods; do echo "@@pod"; $cri inspectp $id 2>/dev/null | awk "$only"; done
+    for id in $ctrs; do echo "@@ctr"; $cri inspect $id 2>/dev/null | awk "$only"; done
+  fi
+fi
 `
 
 // instancesScript lists Incus, LXD and plain LXC containers from their
@@ -163,7 +210,21 @@ func parseContainers(s string) ([]Container, []string, string) {
 			inst = nil
 		}
 	}
+	var k8s []*criRecord
 	for _, line := range lines(s) {
+		if strings.HasPrefix(line, "k8s|") && len(k8s) > 0 {
+			p, v, _ := strings.Cut(line[len("k8s|"):], "|")
+			if u, err := strconv.Unquote(v); err == nil {
+				v = u
+			}
+			r := k8s[len(k8s)-1]
+			r.pairs = append(r.pairs, [2]string{p, v})
+			continue
+		}
+		if line == "@@pod" || line == "@@ctr" {
+			k8s = append(k8s, &criRecord{pod: line == "@@pod"})
+			continue
+		}
 		if inst != nil {
 			if p := strings.Split(line, "|"); p[0] == "cfg" && len(p) == 3 {
 				inst.cfg[p[1]] = p[2]
@@ -259,7 +320,75 @@ func parseContainers(s string) ([]Container, []string, string) {
 	if !done {
 		return nil, nil, "the listing stopped early"
 	}
-	return out, sockets, ""
+	return append(out, kubeContainers(k8s)...), sockets, ""
+}
+
+// criRecord is a pod (crictl inspectp) or container (crictl inspect) as
+// podsScript prints it: JSON paths and values, in order.
+type criRecord struct {
+	pod   bool
+	pairs [][2]string
+}
+
+func (r *criRecord) get(path string) string {
+	for _, p := range r.pairs {
+		if p[0] == path {
+			return p[1]
+		}
+	}
+	return ""
+}
+
+// kubeContainers turns crictl records into Containers named
+// namespace/pod/container, with their pod's host namespaces. A privileged
+// container gets every capability, so capabilities are only listed for
+// the others.
+func kubeContainers(recs []*criRecord) []Container {
+	type ns struct{ pid, net string }
+	pods := map[string]ns{}
+	for _, r := range recs {
+		if r.pod {
+			pods[r.get(".status.metadata.namespace")+"/"+r.get(".status.metadata.name")] = ns{
+				pid: r.get(".status.linux.namespaces.options.pid"), net: r.get(".status.linux.namespaces.options.network")}
+		}
+	}
+	var out []Container
+	for _, r := range recs {
+		if r.pod {
+			continue
+		}
+		pod := r.get(".status.labels.io.kubernetes.pod.namespace") + "/" + r.get(".status.labels.io.kubernetes.pod.name")
+		c := Container{Runtime: "kubernetes", Name: pod + "/" + r.get(".status.metadata.name"), Image: r.get(".status.image.image"),
+			Privileged: r.get(".info.config.linux.security_context.privileged") == "true"}
+		if p, ok := pods[pod]; ok {
+			if p.pid == "NODE" {
+				c.PidMode = "host"
+			}
+			if p.net == "NODE" {
+				c.NetworkMode = "host"
+			}
+		}
+		for _, p := range r.pairs {
+			switch p[0] {
+			case ".status.mounts.[].containerPath":
+				c.Mounts = append(c.Mounts, Mount{Type: "bind", Destination: p[1], RW: true})
+			case ".status.mounts.[].hostPath":
+				if n := len(c.Mounts); n > 0 {
+					c.Mounts[n-1].Source = p[1]
+				}
+			case ".status.mounts.[].readonly":
+				if n := len(c.Mounts); n > 0 {
+					c.Mounts[n-1].RW = p[1] != "true"
+				}
+			case ".info.runtimeSpec.process.capabilities.bounding.[]":
+				if !c.Privileged {
+					c.CapAdd = append(c.CapAdd, p[1])
+				}
+			}
+		}
+		out = append(out, c)
+	}
+	return out
 }
 
 // instance is an Incus or LXD container as instancesScript prints it.

@@ -275,3 +275,90 @@ lxc.mount.entry = shm dev/shm tmpfs defaults,create=dir 0 0
 lxc.mount.entry = /lib lib none ro,bind 0 0
 lxc.mount.entry = /var/lib/lxc/hostdir mnt/hostdir none bind,create=dir 0 0
 `
+
+// k8sFiles are real crictl inspect and inspectp output from k3s 1.33
+// (containerd 2.1): pod priv is privileged, with hostPID, the host's /etc
+// and (read-only) /srv mounted, and a password in its environment, which
+// also shows in kubectl's last-applied annotation; pod caps adds SYS_ADMIN.
+//
+//go:embed testdata/k8s/*.json
+var k8sFiles embed.FS
+
+func TestPodsScript(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("needs /bin/sh")
+	}
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "bin")
+	os.MkdirAll(bin, 0o755)
+	for _, n := range []string{"priv-container", "priv-pod", "caps-container", "caps-pod"} {
+		b, err := k8sFiles.ReadFile("testdata/k8s/" + n + ".json")
+		if err != nil {
+			t.Fatal(err)
+		}
+		os.WriteFile(filepath.Join(dir, n+".json"), b, 0o644)
+	}
+	proc := func(pid, comm string) {
+		os.MkdirAll(filepath.Join(dir, "proc", pid), 0o755)
+		os.WriteFile(filepath.Join(dir, "proc", pid, "comm"), []byte(comm+"\n"), 0o644)
+	}
+	proc("1", "systemd")
+	crictl := `#!/bin/sh
+[ -n "$DOWN" ] && { echo "level=fatal msg=\"validate service connection\"" >&2; exit 1; }
+case "$1" in
+pods | ps) echo priv; echo caps ;;
+inspectp) cat ` + dir + `/$2-pod.json ;;
+inspect) cat ` + dir + `/$2-container.json ;;
+esac
+`
+	run := func(path string, env ...string) []Container {
+		t.Helper()
+		script := strings.ReplaceAll(podsScript, "/proc/", dir+"/proc/") + "echo @@end\n"
+		cmd := exec.Command("/bin/sh", "-c", script)
+		cmd.Env = append(append(os.Environ(), "PATH="+path), env...)
+		out, err := cmd.Output()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(out), "labsecret") {
+			t.Fatalf("a pod's environment left the host:\n%s", out)
+		}
+		got, _, why := parseContainers(string(out))
+		if why != "" {
+			t.Logf("why: %s", why)
+		}
+		return got
+	}
+	// Not a node: nothing is asked.
+	os.WriteFile(filepath.Join(bin, "crictl"), []byte(crictl), 0o755)
+	if got := run(bin + ":/usr/bin:/bin"); got == nil || len(got) != 0 {
+		t.Errorf("without a kubelet: %+v", got)
+	}
+
+	proc("50", "k3s")
+	got := run(bin + ":/usr/bin:/bin")
+	if len(got) != 2 {
+		t.Fatalf("got %+v", got)
+	}
+	priv, caps := got[0], got[1]
+	if priv.Runtime != "kubernetes" || priv.Name != "default/priv/c" || priv.Image != "docker.io/library/busybox:1.37" ||
+		!priv.Privileged || priv.PidMode != "host" || priv.NetworkMode != "" || priv.CapAdd != nil {
+		t.Errorf("priv: %+v", priv)
+	}
+	if len(priv.Mounts) < 2 || priv.Mounts[0] != (Mount{Type: "bind", Source: "/etc", Destination: "/host/etc", RW: true}) ||
+		priv.Mounts[1] != (Mount{Type: "bind", Source: "/srv", Destination: "/host/srv"}) {
+		t.Errorf("priv mounts: %+v", priv.Mounts)
+	}
+	if caps.Name != "default/caps/c" || caps.Privileged || caps.PidMode != "" || !contains(caps.CapAdd, "CAP_SYS_ADMIN") {
+		t.Errorf("caps: %+v", caps)
+	}
+
+	// A node whose pods cannot be listed leaves the list unknown.
+	if got := run(bin+":/usr/bin:/bin", "DOWN=1"); got != nil {
+		t.Errorf("unreachable runtime: %+v", got)
+	}
+	os.Remove(filepath.Join(bin, "crictl"))
+	if got := run(bin); got != nil { // only shell builtins: no crictl anywhere
+		t.Errorf("no crictl: %+v", got)
+	}
+}

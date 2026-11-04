@@ -86,6 +86,7 @@ func containerRisks(c collect.Container, sockets []string) (Severity, []string, 
 			fixes = append(fixes, fix)
 		}
 	}
+	kube := c.Runtime == "kubernetes"
 	switch {
 	case c.Privileged && (c.Runtime == "incus" || c.Runtime == "lxd"):
 		client := map[string]string{"incus": "incus", "lxd": "lxc"}[c.Runtime]
@@ -94,6 +95,8 @@ func containerRisks(c collect.Container, sockets []string) (Severity, []string, 
 	case c.Privileged && c.Runtime == "lxc":
 		add(High, "is a privileged LXC container (no lxc.idmap: root in it is root on the host, without a user namespace)",
 			"Make it unprivileged: add lxc.idmap entries to its config and shift its files to them, or recreate it as an unprivileged container.")
+	case c.Privileged && kube:
+		add(High, "runs privileged (all capabilities and host devices)", "Set securityContext.privileged to false and add only the capabilities it needs.")
 	case c.Privileged:
 		add(High, "runs privileged (all capabilities and host devices)", "Drop --privileged and add only the capabilities or devices it needs.")
 	}
@@ -122,17 +125,21 @@ func containerRisks(c collect.Container, sockets []string) (Severity, []string, 
 		}
 	}
 	hostPID := c.PidMode == "host"
+	capFix, pidFix := "Remove --cap-add %s; grant narrower capabilities if it needs some.", "Remove --pid host."
+	if kube {
+		capFix, pidFix = "Remove %s from securityContext.capabilities.add; grant narrower capabilities if it needs some.", "Remove hostPID: true from the pod."
+	}
 	for _, cp := range c.CapAdd {
 		name := strings.TrimPrefix(strings.ToUpper(cp), "CAP_")
 		switch {
 		case takeoverCaps[name]:
-			add(High, "has the "+name+" capability", "Remove --cap-add "+name+"; grant narrower capabilities if it needs some.")
+			add(High, "has the "+name+" capability", fmt.Sprintf(capFix, name))
 		case name == "SYS_PTRACE" && hostPID:
-			add(High, "can trace the host's processes (SYS_PTRACE with the host's PID namespace)", "Remove --pid host or the SYS_PTRACE capability.")
+			add(High, "can trace the host's processes (SYS_PTRACE with the host's PID namespace)", strings.TrimSuffix(pidFix, ".")+" or the SYS_PTRACE capability.")
 		}
 	}
 	if hostPID {
-		add(Medium, "shares the host's process namespace (sees and can signal every host process)", "Remove --pid host.")
+		add(Medium, "shares the host's process namespace (sees and can signal every host process)", pidFix)
 	}
 	for _, d := range c.Devices {
 		for _, p := range rawDisks {
