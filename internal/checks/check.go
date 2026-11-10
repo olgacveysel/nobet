@@ -97,6 +97,7 @@ func All() []Check {
 		emptyPasswords,
 		weakPasswordHashes,
 		pamBypass,
+		polkitRoot,
 		unusedKeys,
 		loginRecords,
 		exposedListeners,

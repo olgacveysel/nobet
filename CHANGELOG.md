@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- ACC-008: PAM stacks that skip the password. The auth stacks in `/etc/pam.d` are evaluated as libpam does for a wrong password (controls, jumps, `include`, `@include`, `substack`): Critical when one gets through for su, sudo, sshd, login, Cockpit or polkit (a `sufficient pam_permit.so`, a `pam_deny.so` made optional), naming the line that lets it; High when `pam_wheel.so trust` or a sufficient `pam_succeed_if.so` lets some accounts su to root without a password. Debian's stock `required pam_permit.so` ending is not reported. Only the arguments of `pam_wheel`, `pam_succeed_if` and `pam_faillock` leave the host. Checked with real `su` on Debian 13 and AlmaLinux 9.
+- ACC-009: polkit rules that let accounts do root-equivalent things without a password (`pkexec`, `systemd-run` and unit files, unsigned packages, other accounts' passwords, `machinectl` host shells): Critical for every account, High for named users and groups. JavaScript rules count on polkit 0.106 and later, `.pkla` files on 0.105 (Ubuntu 22.04) or with pkla-compat; only identifiers leave the host, never the rules' code. Checked with real `pkexec` on Debian 13, Ubuntu 22.04 and AlmaLinux 9.
+- CTR-001 missed Incus, LXD and LXC containers on hosts with busybox `ps` (Alpine), which rejects the uid column it asked for; it now falls back to `/proc`.
+- CTR-001 no longer reports a host device bound into an unprivileged LXC container as raw disk access: the container's root cannot open the host's node.
+- CTR-001 on Kubernetes nodes reads every pod, not only Ready ones, so a running container in a pod that is not Ready keeps its host PID and network settings.
+
 ## v0.5.1 — 2026-11-04
 
 A fix for Kubernetes nodes that run CRI-O.

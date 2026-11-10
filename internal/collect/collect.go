@@ -185,7 +185,10 @@ type Facts struct {
 	NFSExports     []NFSExport // what the NFS server exports now; empty when none or stopped
 	// Auth lines of each /etc/pam.d file; only checks use them, at scan
 	// time, so the history leaves them out.
-	PAM         map[string][]PAMLine `json:"-"`
+	PAM map[string][]PAMLine `json:"-"`
+	// What polkit lets through without a password; root only (rule
+	// directories are root's or polkitd's). Only checks use it.
+	Polkit      *Polkit `json:"-"`
 	Updates     *Updates
 	Reboot      *Reboot
 	AutoUpdates map[string]string // how automatic updates are set up (autoUpdatesScript keys); nil if unknown
@@ -384,7 +387,7 @@ func Collect(r runner.Runner) *Facts {
 	// users' keys and sudo rights are only fully readable as root; partial
 	// data would look complete, so skip them entirely otherwise.
 	if !f.Privileged() {
-		for _, name := range []string{"sudoers", "shadow", "firewall", "files", "authkeys", "keylogins", "containers", "dockerd", "privkeys", "credentials", "sudo-rights", "root-jobs"} {
+		for _, name := range []string{"sudoers", "shadow", "firewall", "files", "authkeys", "keylogins", "containers", "dockerd", "polkit", "privkeys", "credentials", "sudo-rights", "root-jobs"} {
 			f.Errors[name] = "needs root or passwordless sudo"
 		}
 		return f
@@ -426,6 +429,12 @@ func Collect(r runner.Runner) *Facts {
 		var why string
 		if f.DockerAPI, why = parseDockerAPI(out); why != "" {
 			f.Errors["dockerd"] = why
+		}
+	}
+	if out, ok := run("polkit", script(polkitScript, true)); ok {
+		var why string
+		if f.Polkit, why = parsePolkit(out); why != "" {
+			f.Errors["polkit"] = why
 		}
 	}
 	if out, ok := run("privkeys", script(privateKeysScript, true)); ok {
