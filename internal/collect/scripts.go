@@ -281,7 +281,57 @@ true
 // the /bin <-> /usr/bin twin path is tried too. /var is skipped except
 // /var/tmp, because container storage under /var/lib holds countless
 // copies of SUID binaries.
-const filesScript = `owned() {
+const filesScript = ownedFn + scanDirs + `find $dirs -xdev -type f -perm -4000 2>/dev/null | head -n 500 | while read -r f; do
+  owned "$f"; case $? in 0) o=pkg ;; 1) o=none ;; *) o=unknown ;; esac
+  echo "suid=$o $f"
+done
+find /etc /bin /sbin /usr /opt -xdev \( -type f -perm -0002 \) -o \( -type d -perm -0002 ! -perm -1000 \) 2>/dev/null | head -n 200 | while read -r f; do
+  if [ -d "$f" ]; then echo "ww=d $f"; else echo "ww=f $f"; fi
+done
+true
+`
+
+// scanDirs sets $dirs to the directories SUID files and file capabilities
+// are looked for in (real directories only: /bin is a symlink on merged-/usr
+// systems).
+const scanDirs = `dirs=""
+for d in /bin /sbin /usr /opt /etc /tmp /var/tmp /home /root /srv; do
+  [ -d "$d" ] && [ ! -L "$d" ] && dirs="$dirs $d"
+done
+`
+
+// fileCapsScript lists files with capabilities (getcap) in the same
+// directories as the SUID search. getcap prints "PATH CAPS" (libcap 2.22,
+// CentOS 7: "PATH = CAPS"), where CAPS can be several space-separated
+// clauses and PATH can hold spaces, so awk takes clauses off the end.
+// With -n (libcap 2.26 and later) a namespaced capability ends in
+// [rootid=N]; it only works in a user namespace whose root is that uid,
+// and plain getcap shows it like any other. Without getcap nothing is
+// listed (nogetcap): busybox has none, and Debian, Ubuntu, Alpine and
+// openSUSE containers do not install it.
+const fileCapsScript = ownedFn + scanDirs + `command -v getcap >/dev/null 2>&1 || { echo "nogetcap"; exit 0; }
+n=""
+getcap -n / >/dev/null 2>&1 && n=-n
+find $dirs -xdev -type f -exec getcap $n {} + 2>/dev/null | head -n 200 | awk '
+{
+  r = 0; k = NF
+  if ($NF ~ /^\[rootid=[0-9]+\]$/) { r = $NF; gsub(/[^0-9]/, "", r); k = NF - 1 }
+  c = ""
+  while (k > 1 && $k ~ /^(cap_[a-z0-9_,]+|all)?([=+-][eip]*)+$/) { c = (c == "" ? $k : $k " " c); k-- }
+  if (c == "") next
+  p = $0
+  for (i = NF; i > k; i--) sub(/ +[^ ]+$/, "", p)
+  print r "|" c "|" p
+}' | while IFS='|' read -r r c p; do
+  owned "$p"; case $? in 0) o=pkg ;; 1) o=none ;; *) o=unknown ;; esac
+  echo "cap=$o|$r|$c|$p"
+done
+echo "@@end"
+`
+
+// ownedFn defines owned PATH: 0 when dpkg or rpm knows the file, 1 when
+// not, 2 without either.
+const ownedFn = `owned() {
   f=$1
   case "$f" in
     /usr/bin/*|/usr/sbin/*|/usr/lib/*|/usr/lib64/*) alt=${f#/usr} ;;
@@ -299,16 +349,4 @@ const filesScript = `owned() {
   fi
   return 2
 }
-dirs=""
-for d in /bin /sbin /usr /opt /etc /tmp /var/tmp /home /root /srv; do
-  [ -d "$d" ] && [ ! -L "$d" ] && dirs="$dirs $d"
-done
-find $dirs -xdev -type f -perm -4000 2>/dev/null | head -n 500 | while read -r f; do
-  owned "$f"; case $? in 0) o=pkg ;; 1) o=none ;; *) o=unknown ;; esac
-  echo "suid=$o $f"
-done
-find /etc /bin /sbin /usr /opt -xdev \( -type f -perm -0002 \) -o \( -type d -perm -0002 ! -perm -1000 \) 2>/dev/null | head -n 200 | while read -r f; do
-  if [ -d "$f" ]; then echo "ww=d $f"; else echo "ww=f $f"; fi
-done
-true
 `

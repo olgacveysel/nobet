@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- FS-006: file capabilities that give root. Critical when a program that can run anything (an interpreter, shell, editor, find, tar…) holds `cap_setuid`, `cap_sys_admin`, `cap_dac_override` or another capability that makes root, even only in its permitted set (python raises it itself); High when such a program can read every file (`cap_dac_read_search`) or root-level capabilities sit in /tmp or home directories; Medium for root-level capabilities on programs no package owns. Packaged programs with capabilities by design (RHEL's `newuidmap`), harmless ones (`cap_net_raw` on ping) and namespaced capabilities (`[rootid=N]`) are not reported. Needs `getcap`; skipped without it. Checked with an unprivileged account on Debian 13, AlmaLinux 9, CentOS 7 (old getcap output), Ubuntu 24.04 and Alpine.
+- FS-001 missed SUID on programs whose file name carries a version or variant, such as Debian's `vim.basic` (what `/usr/bin/vim` points to), `perl5.40.1` or `lua5.4`. A SUID `vim.basic` let an ordinary account write files in `/etc` and run a root shell, and v0.6.0 reported nothing; it is now Critical. `gdb` and `mawk` are on the list too.
+
 ## v0.6.0 — 2026-11-10
 
 - ACC-008: PAM stacks that skip the password. The auth stacks in `/etc/pam.d` are evaluated as libpam does for a wrong password (controls, jumps, `include`, `@include`, `substack`): Critical when one gets through for su, sudo, sshd, login, Cockpit or polkit (a `sufficient pam_permit.so`, a `pam_deny.so` made optional), naming the line that lets it; High when `pam_wheel.so trust` or a sufficient `pam_succeed_if.so` lets some accounts su to root without a password. Debian's stock `required pam_permit.so` ending is not reported. Only the arguments of `pam_wheel`, `pam_succeed_if` and `pam_faillock` leave the host. Checked with real `su` on Debian 13 and AlmaLinux 9.

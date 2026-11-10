@@ -111,6 +111,7 @@ func All() []Check {
 		osSupport,
 		autoUpdates,
 		suidFiles,
+		fileCaps,
 		worldWritable,
 		rootWritable,
 		readablePrivateKeys,

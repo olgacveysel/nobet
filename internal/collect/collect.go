@@ -198,6 +198,7 @@ type Facts struct {
 	Sysctl      map[string]string // kernel settings by sysctl name (kernel.randomize_va_space); nil if unknown
 	Firewall    *Firewall
 	SUID        []SUIDFile
+	FileCaps    []FileCap // files with capabilities; nil when not collected (root only, needs getcap)
 	Writable    []WritableEntry
 	// Files root runs or trusts that other accounts can change; nil if not
 	// collected (root only). Only this result is kept in the scan history:
@@ -390,7 +391,7 @@ func Collect(r runner.Runner) *Facts {
 	// users' keys and sudo rights are only fully readable as root; partial
 	// data would look complete, so skip them entirely otherwise.
 	if !f.Privileged() {
-		for _, name := range []string{"sudoers", "shadow", "firewall", "files", "authkeys", "keylogins", "containers", "dockerd", "polkit", "rhosts", "privkeys", "credentials", "sudo-rights", "root-jobs"} {
+		for _, name := range []string{"sudoers", "shadow", "firewall", "files", "filecaps", "authkeys", "keylogins", "containers", "dockerd", "polkit", "rhosts", "privkeys", "credentials", "sudo-rights", "root-jobs"} {
 			f.Errors[name] = "needs root or passwordless sudo"
 		}
 		return f
@@ -409,6 +410,12 @@ func Collect(r runner.Runner) *Facts {
 	}
 	if out, ok := run("files", script(filesScript, true)); ok {
 		f.SUID, f.Writable = parseFiles(out)
+	}
+	if out, ok := run("filecaps", script(fileCapsScript, true)); ok {
+		var e string
+		if f.FileCaps, e = parseFileCaps(out); e != "" {
+			f.Errors["filecaps"] = e
+		}
 	}
 	if out, ok := run("authkeys", script(authKeysScript, true)); ok {
 		f.AuthKeys = parseAuthKeys(out)

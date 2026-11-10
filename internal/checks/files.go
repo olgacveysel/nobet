@@ -16,6 +16,19 @@ var suidEscapes = map[string]bool{
 	"vi": true, "vim": true, "nano": true, "emacs": true, "less": true, "more": true, "man": true,
 	"find": true, "awk": true, "gawk": true, "nawk": true, "env": true, "nmap": true, "tar": true, "zip": true,
 	"cp": true, "mv": true, "dd": true, "tee": true, "rsync": true, "git": true, "docker": true, "busybox": true,
+	"gdb": true, "mawk": true, "nodejs": true,
+}
+
+// runsAnything reports whether the program at p is one of suidEscapes, by its
+// name without version or variant: the file SUID or capabilities sit on is
+// the real one, such as python3.12, perl5.40.1, lua5.4 or Debian's
+// vim.basic (/usr/bin/vim is a link to it through /etc/alternatives).
+func runsAnything(p string) bool {
+	name := path.Base(p)
+	if i := strings.IndexByte(name, '.'); i > 0 {
+		name = name[:i]
+	}
+	return suidEscapes[name] || suidEscapes[strings.TrimRight(name, "0123456789")]
 }
 
 var suidFiles = Check{
@@ -27,9 +40,8 @@ var suidFiles = Check{
 		}
 		var escapes, unpackaged, writableDirs []string
 		for _, s := range f.SUID {
-			base := path.Base(s.Path)
 			switch {
-			case suidEscapes[base] || strings.HasPrefix(base, "python"):
+			case runsAnything(s.Path):
 				escapes = append(escapes, s.Path)
 			case inUserWritablePlace(s.Path):
 				writableDirs = append(writableDirs, s.Path)

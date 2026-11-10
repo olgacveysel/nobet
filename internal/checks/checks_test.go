@@ -414,3 +414,19 @@ func TestRootWritable(t *testing.T) {
 		t.Errorf("partial: got %+v, skip %q", got, skip)
 	}
 }
+
+func TestSUIDEscapeNames(t *testing.T) {
+	for p, want := range map[string]bool{
+		"/usr/bin/vim.basic": true, "/usr/bin/python3.12": true, "/usr/bin/perl5.40.1": true, "/usr/bin/lua5.4": true,
+		"/usr/bin/gdb": true, "/usr/bin/bash": true, "/usr/bin/passwd": false, "/usr/bin/newuidmap": false,
+		"/usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2": false, "/usr/bin/sudo": false,
+	} {
+		if runsAnything(p) != want {
+			t.Errorf("runsAnything(%s) = %v", p, !want)
+		}
+	}
+	got, _ := suidFiles.Run(&collect.Facts{SUID: []collect.SUIDFile{{Path: "/usr/bin/vim.basic", Owner: "pkg"}}})
+	if len(got) != 1 || got[0].Severity != Critical {
+		t.Errorf("SUID vim.basic: %+v", got)
+	}
+}
