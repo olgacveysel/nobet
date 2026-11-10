@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -367,5 +368,44 @@ esac
 	os.Remove(filepath.Join(bin, "crictl"))
 	if got := run(bin); got != nil { // only shell builtins: no crictl anywhere
 		t.Errorf("no crictl: %+v", got)
+	}
+}
+
+// Where ps has no uid column (busybox rejects -o uid), monitors come from
+// /proc. An unprivileged LXC container cannot open a host device node bound
+// into it; a privileged one can.
+func TestInstancesProcFallback(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("needs /bin/sh")
+	}
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "bin")
+	os.MkdirAll(bin, 0o755)
+	os.WriteFile(filepath.Join(bin, "ps"), []byte("#!/bin/sh\necho \"ps: bad -o argument 'uid'\" >&2\nexit 1\n"), 0o755)
+	monitor := func(pid, name, config string) {
+		p := filepath.Join(dir, "proc", pid)
+		os.MkdirAll(p, 0o755)
+		os.WriteFile(p+"/cmdline", []byte("[lxc monitor] /var/lib/lxc "+name+"\x00"), 0o644)
+		c := filepath.Join(dir, "root", pid, "var/lib/lxc", name, "config")
+		os.MkdirAll(filepath.Dir(c), 0o755)
+		os.WriteFile(c, []byte(config), 0o644)
+	}
+	disk := "lxc.mount.entry = /dev/sdb dev/sdb none bind,create=file 0 0\n"
+	monitor("97", "priv", disk)
+	monitor("98", "unpriv", "lxc.idmap = u 0 100000 65536\nlxc.idmap = g 0 100000 65536\n"+disk)
+	script := strings.NewReplacer("/proc/$pid/root", dir+"/root/$pid", "/proc/", dir+"/proc/", `$2 == "0"`, `$2 == "`+strconv.Itoa(os.Getuid())+`"`).Replace(instancesScript)
+	cmd := exec.Command("/bin/sh", "-c", script+"echo @@end\n")
+	cmd.Env = append(os.Environ(), "PATH="+bin+":/usr/bin:/bin")
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, _, why := parseContainers(string(out))
+	want := []Container{
+		{Runtime: "lxc", Name: "priv", Privileged: true, Devices: []string{"/dev/sdb"}},
+		{Runtime: "lxc", Name: "unpriv"},
+	}
+	if why != "" || !reflect.DeepEqual(got, want) {
+		t.Errorf("got  %+v (%q)\nwant %+v\noutput:\n%s", got, why, want, out)
 	}
 }

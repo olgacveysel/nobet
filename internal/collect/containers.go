@@ -129,7 +129,7 @@ if [ -n "$kube" ]; then
   }'
   if [ -z "$cri" ]; then
     echo "@@kubernetes error $kube is running but crictl is not installed, so its pods cannot be listed"
-  elif ! pods=$($cri pods -q --state ready 2>/dev/null) || ! ctrs=$($cri ps -q --state running 2>/dev/null); then
+  elif ! pods=$($cri pods -q 2>/dev/null) || ! ctrs=$($cri ps -q --state running 2>/dev/null); then
     echo "@@kubernetes error crictl cannot reach the container runtime"
   else
     echo "@@kubernetes"
@@ -148,9 +148,11 @@ fi
 // LXD's own mount namespace is reached too. awk passes on only the keys
 // below: the rest (environment.* and lxc.environment above all) stays on
 // the host.
-const instancesScript = `procs() {
-  if command -v ps >/dev/null 2>&1; then ps -eo pid,uid,args 2>/dev/null || ps -o pid,uid,args
-  else for p in /proc/[0-9]*; do echo "${p#/proc/} $(stat -c %u $p 2>/dev/null) $(tr '\0' ' ' 2>/dev/null < $p/cmdline)"; done; fi
+const instancesScript = `# busybox ps has no uid column (it rejects -o uid), and some systems have
+# no ps: /proc then.
+procs() {
+  ps -eo pid,uid,args 2>/dev/null && return
+  for p in /proc/[0-9]*; do echo "${p#/proc/} $(stat -c %u $p 2>/dev/null) $(tr '\0' ' ' 2>/dev/null < $p/cmdline)"; done
 }
 procs | awk '$2 == "0" && $3 == "[lxc" && $4 == "monitor]" && NF == 6 { print $1, $5, $6 }' |
 while read -r pid dir name; do
@@ -423,6 +425,11 @@ func (in *instance) container() (Container, bool) {
 				c.Mounts = append(c.Mounts, Mount{Type: "bind", Source: d["source"], Destination: d["path"], RW: d["readonly"] != "true"})
 			}
 		case "unix-block", "unix-char":
+			// Incus makes the node for the container's root; LXC binds
+			// the host's, which an idmapped root cannot open.
+			if in.runtime == "lxc" && !c.Privileged {
+				continue
+			}
 			if p := cmp.Or(d["source"], d["path"]); p != "" {
 				c.Devices = append(c.Devices, p)
 			}

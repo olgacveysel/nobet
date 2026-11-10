@@ -98,7 +98,36 @@ func TestPAMBypass(t *testing.T) {
 		t.Errorf("pam_wheel without trust: %+v", got)
 	}
 
-	f := &collect.Facts{Errors: map[string]string{"pam": "cannot read /etc/pam.d/su"}}
+	// trust after required does not skip the password: pam_unix decides.
+	p = almaPAM()
+	p["su"] = append([]collect.PAMLine{pl("auth", "required", "pam_wheel.so", "trust", "use_uid")}, p["su"]...)
+	if got := run(p, nil); len(got) != 0 {
+		t.Errorf("required pam_wheel trust: %+v", got)
+	}
+	// Without a wheel group, pam_wheel uses the group with GID 0.
+	p = debianPAM()
+	p["su"] = append([]collect.PAMLine{pl("auth", "sufficient", "pam_wheel.so", "trust")}, p["su"]...)
+	f := &collect.Facts{Errors: map[string]string{}, PAM: p,
+		Groups: []collect.GroupEntry{{Name: "root", GID: 0, Members: []string{"carol"}}, {Name: "sudo", GID: 27}}}
+	if got, _ := pamBypass.Run(f); len(got) != 1 || !strings.Contains(got[0].Detail, "members of root (carol)") {
+		t.Errorf("pam_wheel trust, no wheel group: %+v", got)
+	}
+	// deny inverts pam_wheel: everyone outside the group passes.
+	p = debianPAM()
+	p["su"] = append([]collect.PAMLine{pl("auth", "sufficient", "pam_wheel.so", "deny", "group=nosu")}, p["su"]...)
+	if got := run(p, nil); len(got) != 1 || got[0].Severity != Critical {
+		t.Errorf("pam_wheel deny: %+v", got)
+	}
+	// A Match block that turns passwords on for some addresses counts.
+	p = debianPAM()
+	p["common-auth"][1].Control = "optional"
+	f = &collect.Facts{Errors: map[string]string{}, PAM: p, SSHD: keyOnly,
+		SSHDMatch: []collect.SSHDContext{{Addr: "10.0.0.1", From: "10.0.0.0/8", Changes: map[string][]string{"passwordauthentication": {"yes"}}}}}
+	if got, _ := pamBypass.Run(f); len(got) != 1 || !strings.Contains(got[0].Title, "sshd") {
+		t.Errorf("Match enables passwords: %+v", got)
+	}
+
+	f = &collect.Facts{Errors: map[string]string{"pam": "cannot read /etc/pam.d/su"}}
 	if _, skip := pamBypass.Run(f); !strings.Contains(skip, "cannot read") {
 		t.Errorf("unreadable: %q", skip)
 	}

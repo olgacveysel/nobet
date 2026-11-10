@@ -34,6 +34,8 @@ var pamPasses = map[string]bool{
 
 func pamOutcome(l collect.PAMLine) string {
 	switch {
+	case l.Module == "pam_wheel.so" && contains(l.Args, "deny"):
+		return pamSuccess // deny inverts it: everyone outside the group passes
 	case l.Module == "pam_faillock.so" && contains(l.Args, "authfail"):
 		return pamFail
 	case l.Module == "pam_faillock.so" && (contains(l.Args, "preauth") || contains(l.Args, "authsucc")):
@@ -164,23 +166,40 @@ func pamSkips(f *collect.Facts, stack []pamEntry) []string {
 			continue
 		}
 		l := e.line
-		if a := pamAction(l.Control, pamSuccess); a != "done" && a != "ok" {
+		// Only a success that ends the stack skips the password: after a
+		// required one, the password module still decides.
+		if pamAction(l.Control, pamSuccess) != "done" {
 			continue
 		}
 		switch {
-		case l.Module == "pam_wheel.so" && contains(l.Args, "trust"):
-			group := "wheel"
+		case l.Module == "pam_wheel.so" && contains(l.Args, "trust") && !contains(l.Args, "deny"):
+			group := wheelGroup(f)
 			for _, a := range l.Args {
 				if g, ok := strings.CutPrefix(a, "group="); ok {
 					group = g
 				}
 			}
 			out = append(out, "members of "+group+" ("+summarize(f.GroupMembers(group), 6)+"), by pam_wheel.so trust in /etc/pam.d/"+e.file)
-		case l.Module == "pam_succeed_if.so" && pamAction(l.Control, pamSuccess) == "done":
+		case l.Module == "pam_succeed_if.so":
 			out = append(out, "accounts matching \""+strings.Join(l.Args, " ")+"\", by pam_succeed_if.so in /etc/pam.d/"+e.file)
 		}
 	}
 	return out
+}
+
+// wheelGroup is the group pam_wheel uses without group=: wheel, or the
+// group with GID 0 where there is no wheel (Debian, Ubuntu).
+func wheelGroup(f *collect.Facts) string {
+	name := "wheel"
+	for _, g := range f.Groups {
+		if g.Name == "wheel" {
+			return name
+		}
+		if g.GID == 0 {
+			name = g.Name
+		}
+	}
+	return name
 }
 
 // pamServices are the services whose stacks give root or a login: su and
@@ -197,10 +216,16 @@ var pamBypass = Check{
 		}
 		// sshd only asks PAM for passwords with UsePAM and password or
 		// keyboard-interactive authentication.
-		sshdPAM := true
-		if len(f.SSHD) > 0 {
-			on := func(k string) bool { return len(f.SSHD[k]) > 0 && f.SSHD[k][0] == "yes" }
-			sshdPAM = on("usepam") && (on("passwordauthentication") || on("kbdinteractiveauthentication") || on("challengeresponseauthentication"))
+		// Match blocks count: one view that asks is enough. An unknown
+		// config counts as asking.
+		sshdPAM := false
+		for _, u := range f.SSHDUsers() {
+			for _, v := range f.SSHDViews(u) {
+				on := func(k string) bool { return len(v.Config[k]) > 0 && v.Config[k][0] == "yes" }
+				if v.Config == nil || on("usepam") && (on("passwordauthentication") || on("kbdinteractiveauthentication") || on("challengeresponseauthentication")) {
+					sshdPAM = true
+				}
+			}
 		}
 		var open, through []string
 		var skips []string
