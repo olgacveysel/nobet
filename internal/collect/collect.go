@@ -513,6 +513,7 @@ func (f *Facts) collectRootPaths(run func(name, body string) (string, bool)) {
 	}
 	jobs = append(jobs, sudoJobs(f)...)
 	jobs = append(jobs, securePathJob(f.Sudoers)...)
+	jobs = append(jobs, loginJobs(f)...)
 	paths, truncated := rootPaths(jobs)
 	if out, ok = run("root-paths", pathsScript(paths)); !ok {
 		return

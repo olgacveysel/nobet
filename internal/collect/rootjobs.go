@@ -15,9 +15,10 @@ import (
 // rule's commands, or the account and sudo configuration. Whoever can change
 // one of those files can become root.
 type RootJob struct {
-	Kind   string   `json:"kind"`   // cron, run-parts, systemd, startup, sudo, config
-	Source string   `json:"source"` // where it is defined, e.g. /etc/cron.d/backup or nginx.service
-	Paths  []string `json:"paths"`  // files root runs or reads; for a directory, every file in it
+	Kind    string   `json:"kind"`              // cron, run-parts, systemd, startup, sudo, config
+	Source  string   `json:"source"`            // where it is defined, e.g. /etc/cron.d/backup or nginx.service
+	Paths   []string `json:"paths"`             // files root runs or reads; for a directory, every file in it
+	Account string   `json:"account,omitempty"` // login: the account whose logins use the files
 }
 
 // PathEntry is the owner and mode of one file or directory.
@@ -90,6 +91,8 @@ func (w WritablePath) Use() string {
 		return "named in the " + w.Source
 	case "config":
 		return "trusted by sudo, logins or the loader"
+	case "login":
+		return "used by the logins of " + w.Source + ", which can become root"
 	}
 	return w.Kind + " " + w.Source
 }
@@ -435,6 +438,79 @@ func sudoJobs(f *Facts) []RootJob {
 	return jobs
 }
 
+// loginFiles are what an account's logins run, relative to its home:
+// shell startup files, and ~/.ssh/rc, which sshd runs at every SSH login.
+// The home and ~/.ssh themselves are listed too: whoever can write them
+// can put any of these files in place.
+var loginFiles = []string{"", ".profile", ".bashrc", ".bash_profile", ".bash_login", ".bash_logout",
+	".zshenv", ".zshrc", ".zprofile", ".zlogin", ".ssh", ".ssh/rc"}
+
+// loginJobs lists the login files of every account that can become root:
+// UID 0, a sudo rule that runs any command or one that escapes to a shell
+// as root (with or without a password: a changed .bashrc can catch it), or
+// a root daemon's socket or a raw disk. Whoever else can change them runs
+// commands as that account at its next login, and with that becomes root
+// (checked with Debian 13's .bashrc, .profile and ~/.ssh/rc). The files
+// that hold its SSH keys count only where sshd has StrictModes off for the
+// account: with it on, sshd refuses keys whose file or directories others
+// can write. root's own startup files are in rootJobsScript already.
+func loginJobs(f *Facts) []RootJob {
+	why := map[string]string{}
+	for _, p := range f.Passwd {
+		if p.UID == 0 {
+			why[p.Name] = "UID 0"
+		}
+	}
+	for u, entries := range f.SudoRights {
+		for _, e := range entries {
+			if _, ok := why[u]; !ok && e.AsRoot() && (e.RootAll() || len(e.Escapes()) > 0) {
+				why[u] = "sudo"
+			}
+		}
+	}
+	for u, hows := range f.RootDoorRoutes() {
+		if _, ok := why[u]; !ok && u != "*" && len(hows) > 0 {
+			why[u] = hows[0]
+		}
+	}
+	var jobs []RootJob
+	seen := map[string]bool{}
+	for _, p := range f.Passwd {
+		reason, ok := why[p.Name]
+		if !ok || seen[p.Name] || !strings.HasPrefix(p.Home, "/") || p.Home == "/" {
+			continue
+		}
+		seen[p.Name] = true
+		home := path.Clean(p.Home)
+		j := RootJob{Kind: "login", Source: p.Name + " (" + reason + ")", Account: p.Name}
+		for _, rel := range loginFiles {
+			if p.Name == "root" && rel != ".ssh/rc" {
+				continue // root's startup files are a job of their own
+			}
+			j.Paths = append(j.Paths, path.Join(home, rel))
+		}
+		for _, v := range f.SSHDViews(p.Name) {
+			if SSHDFirst(v.Config, "strictmodes") != "no" {
+				continue
+			}
+			for _, k := range strings.Fields(strings.Join(v.Config["authorizedkeysfile"], " ")) {
+				if k == "none" {
+					continue
+				}
+				k = strings.NewReplacer("%%", "%", "%h", home, "%u", p.Name, "%U", strconv.Itoa(p.UID)).Replace(k)
+				if !strings.HasPrefix(k, "/") {
+					k = path.Join(home, k)
+				}
+				j.Paths = append(j.Paths, path.Clean(k), path.Dir(path.Clean(k)))
+			}
+		}
+		j.Paths = dedupe(j.Paths)
+		jobs = append(jobs, j)
+	}
+	sort.Slice(jobs, func(a, b int) bool { return jobs[a].Account < jobs[b].Account })
+	return jobs
+}
+
 // safePath matches paths that can go into a generated script unquoted.
 var safePath = regexp.MustCompile(`^/[A-Za-z0-9._+,:@%~=/-]*$`)
 
@@ -705,6 +781,25 @@ func (f *Facts) writablePaths() []WritablePath {
 	out := []WritablePath{}
 	onPath := map[string]bool{} // a PATH directory is reported once, whichever lists name it
 	for _, j := range f.RootJobs {
+		// A login job lists a home and the files in it: a file whose
+		// writers its listed directory already has adds nothing.
+		reported := map[string]map[string]bool{}
+		covered := func(p string, ws []Writer) bool {
+			for d := path.Dir(p); ; d = path.Dir(d) {
+				if have, ok := reported[d]; ok {
+					all := true
+					for _, w := range ws {
+						all = all && have[w.Account+"|"+strconv.FormatBool(w.Everyone)]
+					}
+					if all {
+						return true
+					}
+				}
+				if d == "/" || d == "." {
+					return false
+				}
+			}
+		}
 		for _, p := range j.Paths {
 			if j.Kind == "path" {
 				if onPath[p] {
@@ -712,14 +807,38 @@ func (f *Facts) writablePaths() []WritablePath {
 				}
 				onPath[p] = true
 			}
-			if ws := f.Writers(p); len(ws) > 0 {
+			if ws := others(f.Writers(p), j.Account); len(ws) > 0 {
+				if j.Kind == "login" {
+					if covered(p, ws) {
+						continue
+					}
+					reported[p] = map[string]bool{}
+					for _, w := range ws {
+						reported[p][w.Account+"|"+strconv.FormatBool(w.Everyone)] = true
+					}
+				}
 				out = append(out, WritablePath{Kind: j.Kind, Source: j.Source, Path: p, Writers: ws})
 			}
 			for _, c := range f.Calls[p] {
-				if ws := f.Writers(c); len(ws) > 0 {
+				if ws := others(f.Writers(c), j.Account); len(ws) > 0 {
 					out = append(out, WritablePath{Kind: j.Kind, Source: j.Source, Path: c, CalledBy: p, Writers: ws})
 				}
 			}
+		}
+	}
+	return out
+}
+
+// others leaves out account's own access: a login job's account may change
+// its own files.
+func others(ws []Writer, account string) []Writer {
+	if account == "" {
+		return ws
+	}
+	out := ws[:0]
+	for _, w := range ws {
+		if w.Everyone || w.Account != account {
+			out = append(out, w)
 		}
 	}
 	return out

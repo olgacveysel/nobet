@@ -11,6 +11,8 @@
   - Incus 6.0: `incus-admin` got a privileged container and the host's `/etc` as a disk; the `incus` group was refused both.
   - libvirt 11: the `libvirt` group defined a storage pool on `/etc`; others were refused by polkit.
   - The `disk` group wrote a file onto an ext4 device.
+- FS-003 now follows the accounts that can become root (UID 0, sudo for any command or a shell escape, root daemons' sockets, raw disks) to their login files: shell startup files (`.profile`, `.bashrc` and the like), `~/.ssh/rc`, and their home and `~/.ssh`. Whoever else can change them runs commands as that account at its next login. Their `authorized_keys` count only where sshd has `StrictModes no`: with it on, sshd refuses keys others can write. The account's own access is never reported, and a writable home is reported once rather than for every file in it.
+  - Checked on Debian 13 with a deploy account with passwordless sudo. Another account's line in deploy's `.bashrc` (interactive login), `.profile` (login shell) and `~/.ssh/rc` (deploy's own key login) each wrote a root-owned file in `/etc`. A key planted in deploy's `authorized_keys` through a group-writable home or an ACL was refused under `StrictModes yes`, and let the other account in under `StrictModes no`.
 
 ## v0.6.0 — 2026-11-10
 
