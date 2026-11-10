@@ -188,7 +188,10 @@ type Facts struct {
 	PAM map[string][]PAMLine `json:"-"`
 	// What polkit lets through without a password; root only (rule
 	// directories are root's or polkitd's). Only checks use it.
-	Polkit      *Polkit `json:"-"`
+	Polkit *Polkit `json:"-"`
+	// Host-based trust entries (hosts.equiv, shosts.equiv, ~/.rhosts,
+	// ~/.shosts); root only (other accounts' homes).
+	HostTrust   []HostTrust
 	Updates     *Updates
 	Reboot      *Reboot
 	AutoUpdates map[string]string // how automatic updates are set up (autoUpdatesScript keys); nil if unknown
@@ -387,7 +390,7 @@ func Collect(r runner.Runner) *Facts {
 	// users' keys and sudo rights are only fully readable as root; partial
 	// data would look complete, so skip them entirely otherwise.
 	if !f.Privileged() {
-		for _, name := range []string{"sudoers", "shadow", "firewall", "files", "authkeys", "keylogins", "containers", "dockerd", "polkit", "privkeys", "credentials", "sudo-rights", "root-jobs"} {
+		for _, name := range []string{"sudoers", "shadow", "firewall", "files", "authkeys", "keylogins", "containers", "dockerd", "polkit", "rhosts", "privkeys", "credentials", "sudo-rights", "root-jobs"} {
 			f.Errors[name] = "needs root or passwordless sudo"
 		}
 		return f
@@ -429,6 +432,11 @@ func Collect(r runner.Runner) *Facts {
 		var why string
 		if f.DockerAPI, why = parseDockerAPI(out); why != "" {
 			f.Errors["dockerd"] = why
+		}
+	}
+	if out, ok := run("rhosts", script(rhostsScript, true)); ok {
+		if f.HostTrust = parseRhosts(out); f.HostTrust == nil {
+			f.Errors["rhosts"] = "the trust file listing stopped early"
 		}
 	}
 	if out, ok := run("polkit", script(polkitScript, true)); ok {

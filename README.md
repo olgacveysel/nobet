@@ -305,6 +305,7 @@ Measured with 50 hosts (the size nöbet is built for): a full scan takes about 1
 | SSH-003 | Critical        | Empty passwords accepted |
 | SSH-004 | Low             | X11 forwarding enabled |
 | SSH-005 | Medium / Low    | Weak or deprecated algorithms offered: Medium for RC4, 3DES, Blowfish, MD5 MACs, 1024-bit DH and DSA keys; Low for CBC ciphers and SHA-1 key exchange or signatures (`ssh-rsa`) |
+| SSH-006 | High / Medium   | Host-based SSH login without a key or password (`HostbasedAuthentication yes`): High when root can log in from other hosts (`/root/.rhosts` or `.shosts` with `IgnoreRhosts no`), or an equiv file names a remote user (who then gets in as any account but root); Medium when accounts can log in from listed hosts. Only entries sshd honors count |
 | ACC-001 | Critical        | Accounts other than root with UID 0 |
 | ACC-002 | High / Medium   | Passwordless sudo rules, or sudo authentication disabled |
 | ACC-003 | High            | Members of root-equivalent groups (docker, lxd, incus) |
@@ -350,6 +351,8 @@ Incus and LXD containers are found from their running `[lxc monitor]` processes,
 On a Kubernetes node (a kubelet, k3s or RKE2 is running), CTR-001 also lists the running pods through `crictl`, which asks the container runtime and changes nothing; RKE2's own crictl is used where none is on the PATH. `crictl inspect` shows each container's environment, and pods can carry their whole spec in annotations, so only the settings that matter leave the host: privileged, host paths mounted (read-only or not), added capabilities, and the host's PID or network namespace. Findings name the container `namespace/pod/container`. System pods often need privileges (kube-proxy, CNI and CSI agents): allowlist them once reviewed, for example `CTR-001 * kube-system/`. Where a kubelet runs but `crictl` is missing or cannot reach the runtime, CTR-001 says so rather than reporting a partial list.
 
 LOG-001 uses the same messages to tell whether you could find out, after the fact, who logged in: they should reach back 90 days. Short logs are only reported on a system older than they are (from the root file system's creation, `/etc/machine-id`, which a cloud VM writes at its first boot, or the `basesystem` package), so a new server does not get the finding; when the age cannot be told, the check says so.
+
+SSH-006 only applies where sshd has host-based authentication on (it is off by default). It reads `/etc/hosts.equiv`, `/etc/ssh/shosts.equiv` and every account's `~/.rhosts` and `~/.shosts`, and counts the entries sshd really honors, as checked in the lab with OpenSSH 10: the equiv files never let root in; the accounts' own files only count with `IgnoreRhosts no`; a bare `+` is ignored; and with `UseDNS no` (the default) only addresses and netgroups match, not host names. Whoever is root on a trusted host, or has its host key, gets in.
 
 ACC-009 reads polkit's rules as root. JavaScript rules are not run: on the host, awk picks out of each `polkit.addRule` block only whether it can answer `polkit.Result.YES`, the action IDs it compares (`==`, `indexOf`, `startsWith`, arrays tested with `indexOf(action.id)`) and the groups and users it checks; a block that never looks at `action.id` applies to every action. `.pkla` sections count where they answer yes. Which kind counts depends on polkit's version: 0.105 ignores JavaScript rules, later versions ignore `.pkla` files unless pkla-compat is installed (AlmaLinux and RHEL have it).
 
@@ -433,6 +436,7 @@ UPD-004 knows Ubuntu, Debian (including its free LTS period) and Raspbian, RHEL,
 - [x] Weak password hashes (ACC-007)
 - [x] PAM stacks that skip the password (ACC-008)
 - [x] Polkit rules that give root without a password (ACC-009)
+- [x] Host-based SSH login from other hosts (SSH-006)
 
 ## Project layout
 
