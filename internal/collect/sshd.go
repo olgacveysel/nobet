@@ -305,8 +305,8 @@ func probeUsers(f *Facts) []string {
 			add(&rest, u)
 		}
 	}
-	for _, g := range RootEquivalentGroups {
-		for _, u := range f.GroupMembers(g) {
+	for u := range f.RootDoorRoutes() {
+		if u != "*" {
 			add(&rest, u)
 		}
 	}

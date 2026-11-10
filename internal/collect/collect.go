@@ -16,9 +16,6 @@ import (
 	"github.com/olgacveysel/nobet/internal/runner"
 )
 
-// RootEquivalentGroups grant root on the host to their members.
-var RootEquivalentGroups = []string{"docker", "lxd", "incus"}
-
 type PasswdEntry struct {
 	Name  string `json:"name"`
 	UID   int    `json:"uid"`
@@ -198,7 +195,8 @@ type Facts struct {
 	Sysctl      map[string]string // kernel settings by sysctl name (kernel.randomize_va_space); nil if unknown
 	Firewall    *Firewall
 	SUID        []SUIDFile
-	FileCaps    []FileCap // files with capabilities; nil when not collected (root only, needs getcap)
+	FileCaps    []FileCap  // files with capabilities; nil when not collected (root only, needs getcap)
+	RootDoors   []RootDoor // root daemons' sockets and raw disks others can open; nil when not collected
 	Writable    []WritableEntry
 	// Files root runs or trusts that other accounts can change; nil if not
 	// collected (root only). Only this result is kept in the scan history:
@@ -385,6 +383,17 @@ func Collect(r runner.Runner) *Facts {
 		if f.AutoUpdates = parseKeyValues(out); f.AutoUpdates == nil {
 			f.Errors["autoupdates"] = "the listing stopped early"
 		}
+	}
+	// Who can open root's daemon sockets and raw disks: permissions any
+	// account can read.
+	if f.Passwd != nil && f.Groups != nil {
+		if out, ok := run("doors", script(doorsScript(), true)); ok {
+			if f.RootDoors = f.parseDoors(out); f.RootDoors == nil {
+				f.Errors["doors"] = "the listing stopped early"
+			}
+		}
+	} else {
+		f.Errors["doors"] = "accounts unknown"
 	}
 
 	// Sudoers, firewall rules, file permissions across the system, other

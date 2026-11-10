@@ -4,6 +4,13 @@
 
 - FS-006: file capabilities that give root. Critical when a program that can run anything (an interpreter, shell, editor, find, tar…) holds `cap_setuid`, `cap_sys_admin`, `cap_dac_override` or another capability that makes root, even only in its permitted set (python raises it itself); High when such a program can read every file (`cap_dac_read_search`) or root-level capabilities sit in /tmp or home directories; Medium for root-level capabilities on programs no package owns. Packaged programs with capabilities by design (RHEL's `newuidmap`), harmless ones (`cap_net_raw` on ping) and namespaced capabilities (`[rootid=N]`) are not reported. Needs `getcap`; skipped without it. Checked with an unprivileged account on Debian 13, AlmaLinux 9, CentOS 7 (old getcap output), Ubuntu 24.04 and Alpine.
 - FS-001 missed SUID on programs whose file name carries a version or variant, such as Debian's `vim.basic` (what `/usr/bin/vim` points to), `perl5.40.1` or `lua5.4`. A SUID `vim.basic` let an ordinary account write files in `/etc` and run a root shell, and v0.6.0 reported nothing; it is now Critical. `gdb` and `mawk` are on the list too.
+- ACC-003 now looks at who can open root's daemon sockets and raw disks instead of going by group names: the sockets of Docker, podman, containerd, CRI-O, Incus, LXD, libvirt and systemd, and block devices, through the owner, mode, ACL entries and directories above them. A `setfacl -m u:jenkins:rw` on `docker.sock` is now reported, and a socket or disk every account can open is Critical. Raw disks count too: the `disk` group can write them (High), and reading them reads every file. The root access map shows these routes as `Docker (docker group)` or `Docker (ACL on /run/docker.sock)`.
+- ACC-003 reported members of the `incus` group as root and missed `incus-admin`. On current Incus the `incus` group only reaches `incus-user`, which keeps each account in a restricted project, and `incus-admin` holds the root-level socket. libvirt counts through its `libvirt` group, which the packaged polkit rule lets in (its socket is open to all and polkit decides).
+- Checked with real daemons on 2026-11-11, each with an ordinary account writing a root-owned file in `/etc` or refused:
+  - Docker 29: a docker group member, an account with an ACL entry, then every account after `chmod 666`.
+  - Incus 6.0: `incus-admin` got a privileged container and the host's `/etc` as a disk; the `incus` group was refused both.
+  - libvirt 11: the `libvirt` group defined a storage pool on `/etc`; others were refused by polkit.
+  - The `disk` group wrote a file onto an ext4 device.
 
 ## v0.6.0 — 2026-11-10
 

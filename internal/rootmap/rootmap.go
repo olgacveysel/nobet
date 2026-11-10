@@ -382,10 +382,26 @@ func Routes(f *collect.Facts) (map[string][]Route, []string) {
 	if f.Groups == nil {
 		gaps = append(gaps, "group membership unknown")
 	} else {
-		for _, g := range collect.RootEquivalentGroups {
-			for _, u := range f.GroupMembers(g) {
-				if !uid0[u] {
-					add(u, Route{Via: g + " group"})
+		// Root daemons' sockets and raw disks; one every account can open
+		// is a route for every account that can log in.
+		routes := f.RootDoorRoutes()
+		users := make([]string, 0, len(routes))
+		for u := range routes {
+			users = append(users, u)
+		}
+		sort.Strings(users)
+		for _, u := range users {
+			for _, how := range routes[u] {
+				if u != "*" {
+					if !uid0[u] {
+						add(u, Route{Via: how})
+					}
+					continue
+				}
+				for _, p := range f.Passwd {
+					if !uid0[p.Name] && canLogIn(p.Shell) {
+						add(p.Name, Route{Via: how})
+					}
 				}
 			}
 		}

@@ -85,24 +85,128 @@ func grantsAll(rule string) bool {
 
 var rootGroupMembers = Check{
 	ID:    "ACC-003",
-	Title: "Members of root-equivalent groups",
+	Title: "Accounts that control root's daemons or raw disks",
 	Run: func(f *collect.Facts) ([]Finding, string) {
 		if f.Groups == nil || f.Passwd == nil {
 			return nil, "could not read /etc/group or /etc/passwd: " + f.Errors["group"] + f.Errors["passwd"]
 		}
-		var out []Finding
-		for _, g := range collect.RootEquivalentGroups {
-			members := f.GroupMembers(g)
-			if len(members) == 0 {
-				continue
+		if f.RootDoors == nil {
+			// The sockets could not be looked at: go by the groups that
+			// usually own them.
+			var out []Finding
+			for _, g := range collect.RootDoorGroups {
+				members := f.GroupMembers(g)
+				if len(members) == 0 {
+					continue
+				}
+				out = append(out, Finding{
+					CheckID:  "ACC-003",
+					Severity: High,
+					Title:    fmt.Sprintf("%d account(s) in the %s group, which is equivalent to root", len(members), g),
+					Detail:   "members: " + strings.Join(members, ", ") + " (the sockets themselves could not be checked: " + f.Errors["doors"] + ")",
+					Fix:      "Membership in " + g + " grants root on the host; limit it to trusted admins or use a rootless setup",
+				})
 			}
-			out = append(out, Finding{
-				CheckID:  "ACC-003",
-				Severity: High,
-				Title:    fmt.Sprintf("%d account(s) in the %s group, which is equivalent to root", len(members), g),
-				Detail:   "members: " + strings.Join(members, ", "),
-				Fix:      "Membership in " + g + " grants root on the host; limit it to trusted admins or use a rootless setup",
-			})
+			return out, ""
+		}
+		// One finding per kind of door: libvirt has a socket per driver,
+		// and partitions share a disk's access.
+		type kind struct {
+			open, readAll, withAccounts, withReaders []string // paths by who gets in
+			accounts, readers                        []string
+			how                                      map[string]string
+		}
+		var order []string
+		kinds := map[string]*kind{}
+		for _, d := range f.RootDoors {
+			k := kinds[d.Kind]
+			if k == nil {
+				k = &kind{how: map[string]string{}}
+				kinds[d.Kind] = k
+				order = append(order, d.Kind)
+			}
+			p := d.Path
+			if d.More > 0 {
+				p += fmt.Sprintf(" and %d more", d.More)
+			}
+			switch {
+			case d.Everyone:
+				k.open = append(k.open, p)
+			case d.ReadAll:
+				k.readAll = append(k.readAll, p)
+			}
+			if len(d.Accounts) > 0 {
+				k.withAccounts = append(k.withAccounts, p)
+			}
+			if len(d.Readers) > 0 {
+				k.withReaders = append(k.withReaders, p)
+			}
+			for _, a := range d.Accounts {
+				if _, ok := k.how[a]; !ok {
+					k.accounts = append(k.accounts, a)
+					k.how[a] = d.How(a)
+				}
+			}
+			for _, a := range d.Readers {
+				if !contains(k.readers, a) {
+					k.readers = append(k.readers, a)
+				}
+			}
+		}
+		var out []Finding
+		for _, name := range order {
+			k := kinds[name]
+			what := collect.DoorName(name)
+			if len(k.open) > 0 {
+				open := strings.Join(k.open, ", ")
+				title := "Every account can control " + what + ", which is root on the host"
+				if name == "disk" {
+					title = "Every account can write raw disks, which is root on the host"
+				}
+				out = append(out, Finding{CheckID: "ACC-003", Severity: Critical, Title: title,
+					Detail: open + " can be opened by every account",
+					Fix:    "Give " + open + " back its packaged permissions (owner root, an admin group, mode 660) and remove the extra access"})
+				continue // everyone is root already; who else is does not matter
+			}
+			paths := strings.Join(k.withAccounts, ", ")
+			if len(k.accounts) > 0 {
+				sort.Strings(k.accounts)
+				// Group accounts by how they get in: "a, b (docker group); c (ACL ...)".
+				var hows []string
+				by := map[string][]string{}
+				for _, a := range k.accounts {
+					h := strings.TrimPrefix(k.how[a], what+" ")
+					if by[h] == nil {
+						hows = append(hows, h)
+					}
+					by[h] = append(by[h], a)
+				}
+				var parts []string
+				for _, h := range hows {
+					parts = append(parts, strings.Join(by[h], ", ")+" "+h)
+				}
+				title := fmt.Sprintf("%d account(s) can control %s, which is root on the host", len(k.accounts), what)
+				fix := "Access to " + what + " grants root on the host; limit it to trusted admins (group membership, ACL entries), or use a rootless setup"
+				if name == "disk" {
+					title = fmt.Sprintf("%d account(s) can write raw disks, which is root on the host", len(k.accounts))
+					fix = "Remove these accounts from the disk group (and any ACL entries on the devices); writing a disk changes any file on it"
+				}
+				out = append(out, Finding{CheckID: "ACC-003", Severity: High, Title: title,
+					Detail: strings.Join(parts, "; ") + " through " + paths, Fix: fix})
+			}
+			switch {
+			case len(k.readAll) > 0:
+				out = append(out, Finding{CheckID: "ACC-003", Severity: High,
+					Title:  "Every account can read raw disks, and with them every file",
+					Detail: strings.Join(k.readAll, ", ") + " can be read by every account, and with it /etc/shadow and private keys",
+					Fix:    "Give the disk devices back their packaged permissions (owner root, group disk, mode 660)"})
+			case len(k.readers) > 0:
+				sort.Strings(k.readers)
+				out = append(out, Finding{CheckID: "ACC-003", Severity: High,
+					Title:  fmt.Sprintf("%d account(s) can read raw disks, and with them every file", len(k.readers)),
+					Detail: strings.Join(k.readers, ", ") + " can read " + strings.Join(k.withReaders, ", ") + ", including /etc/shadow and private keys",
+					Fix:    "Remove read access to the disk devices for these accounts"})
+			}
 		}
 		return out, ""
 	},
@@ -397,12 +501,6 @@ func canBecomeRoot(f *collect.Facts, user string) bool {
 			}
 		}
 	}
-	for _, g := range collect.RootEquivalentGroups {
-		for _, m := range f.GroupMembers(g) {
-			if m == user {
-				return true
-			}
-		}
-	}
-	return false
+	routes := f.RootDoorRoutes()
+	return len(routes[user]) > 0 || len(routes["*"]) > 0
 }
