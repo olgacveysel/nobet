@@ -91,9 +91,9 @@ done
 		t.Errorf("got  %+v\nwant %+v\noutput:\n%s", byPath, want, out)
 	}
 
-	os.Remove(filepath.Join(bin, "getcap"))
-	cmd = exec.Command("/bin/sh", "-c", script)
-	cmd.Env = append(os.Environ(), "PATH="+bin)
+	// Without getcap (the script adds /usr/sbin and /sbin to PATH, where a
+	// real one may be, so ask for a name nothing has).
+	cmd = exec.Command("/bin/sh", "-c", strings.ReplaceAll(script, "command -v getcap", "command -v nobet-no-getcap"))
 	if out, _ := cmd.Output(); !strings.Contains(string(out), "nogetcap") {
 		t.Errorf("without getcap: %s", out)
 	}

@@ -81,6 +81,10 @@ func TestParseDoors(t *testing.T) {
 	if f.parseDoors(strings.TrimSuffix(doorsSample, "@@end\n")) != nil {
 		t.Error("output without @@end parsed")
 	}
+	// A door whose permissions stat could not read: no list at all.
+	if f.parseDoors(strings.Replace(doorsSample, "stat|0|102|660|socket|/run/docker.sock\n", "", 1)) != nil {
+		t.Error("a door without its stat line parsed")
+	}
 
 	f.RootDoors = got
 	routes := f.RootDoorRoutes()

@@ -327,7 +327,6 @@ func TestConfScript(t *testing.T) {
 func TestSudoersWriters(t *testing.T) {
 	ws := []Writer{
 		{Account: "bob", Path: "/etc/sudoers", How: "owner"},                    // sudo refuses the file
-		{Account: "ops", Path: "/etc/sudoers", How: "group adm"},                // sudo refuses group write but root's
 		{Account: "alice", Path: "/etc/sudoers", How: "group root"},             // accepted
 		{Account: "carol", Path: "/etc/sudoers", How: "an ACL"},                 // accepted: the mask reads as group bits
 		{Account: "dave", Path: "/etc/sudoers", How: "an ACL for group admins"}, // accepted
@@ -335,11 +334,16 @@ func TestSudoersWriters(t *testing.T) {
 		{Everyone: true, Path: "/etc/sudoers", How: "world-writable"},           // sudo refuses it
 	}
 	var got []string
-	for _, w := range sudoersWriters("/etc/sudoers", ws) {
+	for _, w := range sudoersWriters("/etc/sudoers", PathEntry{GID: 0, Mode: 0o660}, ws) {
 		got = append(got, w.Account)
 	}
 	if !reflect.DeepEqual(got, []string{"alice", "carol", "dave"}) {
 		t.Errorf("got %q", got)
+	}
+	// root:adm with an ACL: the mask reads as group write with gid 4, which
+	// sudo refuses ("owned by gid 4, should be 0").
+	if got := sudoersWriters("/etc/sudoers", PathEntry{GID: 4, Mode: 0o660}, ws); got != nil {
+		t.Errorf("gid 4: %+v", got)
 	}
 }
 

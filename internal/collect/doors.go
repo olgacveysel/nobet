@@ -69,7 +69,8 @@ echo "@@end"
 }
 
 // parseDoors reads doorsScript output and works out who can open each
-// door; nil when the output is incomplete.
+// door; nil when the output is incomplete or a door's permissions are
+// missing from it.
 func (f *Facts) parseDoors(s string) []RootDoor {
 	entries, _, _, _ := parsePaths(s)
 	if entries == nil {
@@ -92,7 +93,7 @@ func (f *Facts) parseDoors(s string) []RootDoor {
 		d := RootDoor{Path: p[2], Kind: p[1]}
 		e, ok := entries[d.Path]
 		if !ok {
-			continue
+			return nil // its permissions could not be read: no list rather than one that looks complete
 		}
 		dirs := chain(d.Path)[1:]
 		want := uint32(2) // connecting to a socket takes write permission

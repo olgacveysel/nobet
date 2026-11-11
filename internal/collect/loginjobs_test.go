@@ -33,6 +33,19 @@ func TestLoginJobs(t *testing.T) {
 	if !reflect.DeepEqual(jobs[2].Paths, []string{"/root/.ssh/rc"}) {
 		t.Errorf("root: %q", jobs[2].Paths)
 	}
+	// A UID 0 alias sharing root's home adds nothing root's job has not.
+	f.Passwd = append([]PasswdEntry{{Name: "toor", UID: 0, GID: 0, Home: "/root"}}, f.Passwd...)
+	if n := len(loginJobs(f)); n != 3 {
+		t.Errorf("with toor: %d jobs", n)
+	}
+	f.Passwd = f.Passwd[1:]
+	// An absolute AuthorizedKeysFile: its directory comes before the file,
+	// so a writable directory is reported once.
+	f.SSHD["strictmodes"], f.SSHD["authorizedkeysfile"] = []string{"no"}, []string{"/etc/ssh/keys/%u"}
+	if p := loginJobs(f)[0].Paths; p[len(p)-2] != "/etc/ssh/keys" || p[len(p)-1] != "/etc/ssh/keys/deploy" {
+		t.Errorf("absolute key file: %q", p)
+	}
+	f.SSHD["strictmodes"], f.SSHD["authorizedkeysfile"] = []string{"yes"}, []string{".ssh/authorized_keys .ssh/authorized_keys2"}
 	if p := jobs[0].Paths; p[0] != "/home/deploy" || !contains(p, "/home/deploy/.bashrc") || !contains(p, "/home/deploy/.ssh/rc") || contains(p, "/home/deploy/.ssh/authorized_keys") {
 		t.Errorf("deploy, StrictModes yes: %q", p)
 	}

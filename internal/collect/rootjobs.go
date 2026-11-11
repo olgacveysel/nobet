@@ -497,18 +497,21 @@ func loginJobs(f *Facts) []RootJob {
 		}
 	}
 	var jobs []RootJob
-	seen := map[string]bool{}
-	for _, p := range f.Passwd {
+	seen := map[string]bool{} // accounts and homes: a UID 0 alias (toor) shares root's
+	// root first, so an alias with the same home is the one left out.
+	accts := append([]PasswdEntry(nil), f.Passwd...)
+	sort.SliceStable(accts, func(a, b int) bool { return accts[a].Name == "root" && accts[b].Name != "root" })
+	for _, p := range accts {
 		reason, ok := why[p.Name]
-		if !ok || seen[p.Name] || !strings.HasPrefix(p.Home, "/") || p.Home == "/" {
+		home := path.Clean(p.Home)
+		if !ok || seen[p.Name] || seen["home:"+home] || !strings.HasPrefix(p.Home, "/") || home == "/" {
 			continue
 		}
-		seen[p.Name] = true
-		home := path.Clean(p.Home)
+		seen[p.Name], seen["home:"+home] = true, true
 		j := RootJob{Kind: "login", Source: p.Name + " (" + reason + ")", Account: p.Name}
 		for _, rel := range loginFiles {
-			if p.Name == "root" && rel != ".ssh/rc" {
-				continue // root's startup files are a job of their own
+			if home == "/root" && rel != ".ssh/rc" {
+				continue // root's startup files are a job of their own (also for UID 0 aliases such as toor)
 			}
 			j.Paths = append(j.Paths, path.Join(home, rel))
 		}
@@ -524,7 +527,7 @@ func loginJobs(f *Facts) []RootJob {
 				if !strings.HasPrefix(k, "/") {
 					k = path.Join(home, k)
 				}
-				j.Paths = append(j.Paths, path.Clean(k), path.Dir(path.Clean(k)))
+				j.Paths = append(j.Paths, path.Dir(path.Clean(k)), path.Clean(k)) // the directory first: it covers the file
 			}
 		}
 		j.Paths = dedupe(j.Paths)
@@ -834,7 +837,7 @@ func (f *Facts) writablePaths() []WritablePath {
 			ws := others(f.Writers(p), j.Account)
 			switch {
 			case j.Kind == "sudoers":
-				ws = sudoersWriters(p, ws)
+				ws = sudoersWriters(p, f.Paths[p], ws)
 			case j.Kind == "conf" && strings.HasPrefix(j.Source, "polkit"):
 				// RHEL and Fedora ship /etc/polkit-1/rules.d owned by
 				// polkitd (700): the daemon that decides is as strong as
@@ -869,10 +872,13 @@ func (f *Facts) writablePaths() []WritablePath {
 // that root does not own, or one a group other than root's can write, and
 // whoever can write a directory above it can only put files of their own
 // there, which sudo refuses too (checked with sudo 1.9.16 on Debian 13).
-func sudoersWriters(p string, ws []Writer) []Writer {
+func sudoersWriters(p string, e PathEntry, ws []Writer) []Writer {
+	if e.GID != 0 {
+		return nil // group write (an ACL's mask included) only passes for gid 0
+	}
 	var out []Writer
 	for _, w := range ws {
-		if w.Path == p && (strings.HasPrefix(w.How, "an ACL") || w.How == "group root") {
+		if w.Path == p && !w.Everyone && w.How != "owner" {
 			out = append(out, w)
 		}
 	}

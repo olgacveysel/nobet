@@ -309,7 +309,8 @@ done
 // and plain getcap shows it like any other. Without getcap nothing is
 // listed (nogetcap): busybox has none, and Debian, Ubuntu, Alpine and
 // openSUSE containers do not install it.
-const fileCapsScript = ownedFn + scanDirs + `command -v getcap >/dev/null 2>&1 || { echo "nogetcap"; exit 0; }
+const fileCapsScript = ownedFn + scanDirs + `PATH=$PATH:/usr/sbin:/sbin
+command -v getcap >/dev/null 2>&1 || { echo "nogetcap"; exit 0; }
 n=""
 getcap -n / >/dev/null 2>&1 && n=-n
 find $dirs -xdev -type f -exec getcap $n {} + 2>/dev/null | head -n 200 | awk '
