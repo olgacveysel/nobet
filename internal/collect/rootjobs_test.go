@@ -226,7 +226,7 @@ func TestParseRootJobs(t *testing.T) {
 		"@@files startup root's shell startup files",
 		"/etc/profile",
 		"/root/.bashrc",
-		"@@files config account, sudo and loader configuration",
+		"@@files config account and loader configuration",
 		"/etc/passwd",
 		"/etc/sudoers",
 		"@@systemd",
@@ -242,7 +242,7 @@ func TestParseRootJobs(t *testing.T) {
 		{Kind: "cron", Source: "/var/spool/cron/crontabs/root", Paths: []string{"/var/spool/cron/crontabs/root", "/root/clean.sh"}},
 		{Kind: "run-parts", Source: "/etc/cron.daily", Paths: []string{"/etc/cron.daily", "/etc/cron.daily/logrotate"}},
 		{Kind: "startup", Source: "root's shell startup files", Paths: []string{"/etc/profile", "/root/.bashrc"}},
-		{Kind: "config", Source: "account, sudo and loader configuration", Paths: []string{"/etc/passwd", "/etc/sudoers"}},
+		{Kind: "config", Source: "account and loader configuration", Paths: []string{"/etc/passwd", "/etc/sudoers"}},
 		{Kind: "systemd", Source: "app.service", Paths: []string{"/opt/app/server"}},
 	}
 	if !reflect.DeepEqual(got, want) {
@@ -283,5 +283,83 @@ func TestRootPathsSafe(t *testing.T) {
 	got, truncated := rootPaths(jobs)
 	if !reflect.DeepEqual(got, []string{"/opt/ok"}) || truncated {
 		t.Errorf("got %q, %v", got, truncated)
+	}
+}
+
+// TestConfScript runs the sudoers and conf part of rootJobsScript against
+// a stand-in /etc.
+func TestConfScript(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("needs /bin/sh")
+	}
+	start := strings.Index(rootJobsScript, `echo "@@files sudoers sudo"`)
+	end := strings.Index(rootJobsScript, `if [ -d /run/systemd/system ]`)
+	if start < 0 || end < start {
+		t.Fatal("sections not found")
+	}
+	dir := t.TempDir()
+	for _, p := range []string{"etc/sudoers", "etc/sudoers.d/ops", "etc/pam.d/su", "etc/pam.d/sshd", "etc/ssh/sshd_config",
+		"etc/polkit-1/localauthority/50-local.d/x.pkla", "etc/apt/apt.conf.d/20auto-upgrades", "etc/update-motd.d/00-header"} {
+		os.MkdirAll(filepath.Join(dir, filepath.Dir(p)), 0o755)
+		os.WriteFile(filepath.Join(dir, p), nil, 0o644)
+	}
+	os.MkdirAll(filepath.Join(dir, "etc/ssh/sshd_config.d"), 0o755) // empty: its * stays unexpanded and is skipped
+	script := strings.ReplaceAll(rootJobsScript[start:end], "/etc/", dir+"/etc/") + "echo @@end\n"
+	out, err := exec.Command("/bin/sh", "-c", script).Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := parseRootJobs(string(out))
+	e := dir + "/etc"
+	want := []RootJob{
+		{Kind: "sudoers", Source: "sudo", Paths: []string{e + "/sudoers", e + "/sudoers.d/ops"}},
+		{Kind: "conf", Source: "PAM, which decides su, sudo and logins", Paths: []string{e + "/pam.d", e + "/pam.d/sshd", e + "/pam.d/su"}},
+		{Kind: "conf", Source: "sshd, when it restarts (AuthorizedKeysCommand and the like)", Paths: []string{e + "/ssh/sshd_config", e + "/ssh/sshd_config.d"}},
+		{Kind: "conf", Source: "polkit, which pkexec asks", Paths: []string{e + "/polkit-1/localauthority", e + "/polkit-1/localauthority/50-local.d", e + "/polkit-1/localauthority/50-local.d/x.pkla"}},
+		{Kind: "conf", Source: "APT, whose hooks run as root (apt and its daily timers)", Paths: []string{e + "/apt/apt.conf.d", e + "/apt/apt.conf.d/20auto-upgrades"}},
+		{Kind: "conf", Source: "update-motd, run as root at every login", Paths: []string{e + "/update-motd.d", e + "/update-motd.d/00-header"}},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got  %+v\nwant %+v\noutput:\n%s", got, want, out)
+	}
+}
+
+func TestSudoersWriters(t *testing.T) {
+	ws := []Writer{
+		{Account: "bob", Path: "/etc/sudoers", How: "owner"},                    // sudo refuses the file
+		{Account: "ops", Path: "/etc/sudoers", How: "group adm"},                // sudo refuses group write but root's
+		{Account: "alice", Path: "/etc/sudoers", How: "group root"},             // accepted
+		{Account: "carol", Path: "/etc/sudoers", How: "an ACL"},                 // accepted: the mask reads as group bits
+		{Account: "dave", Path: "/etc/sudoers", How: "an ACL for group admins"}, // accepted
+		{Account: "erin", Path: "/etc", How: "group wheel"},                     // can only add files of her own
+		{Everyone: true, Path: "/etc/sudoers", How: "world-writable"},           // sudo refuses it
+	}
+	var got []string
+	for _, w := range sudoersWriters("/etc/sudoers", ws) {
+		got = append(got, w.Account)
+	}
+	if !reflect.DeepEqual(got, []string{"alice", "carol", "dave"}) {
+		t.Errorf("got %q", got)
+	}
+}
+
+// RHEL's /etc/polkit-1/rules.d is polkitd's own; anyone else counts.
+func TestPolkitdOwnsRules(t *testing.T) {
+	f := &Facts{
+		Passwd: []PasswdEntry{{Name: "root"}, {Name: "polkitd", UID: 998, GID: 996}, {Name: "bob", UID: 1000, GID: 1000}},
+		Groups: []GroupEntry{{Name: "root"}, {Name: "polkitd", GID: 996}, {Name: "bob", GID: 1000}},
+		RootJobs: []RootJob{{Kind: "conf", Source: "polkit, which pkexec asks", Paths: []string{"/etc/polkit-1/rules.d"}},
+			{Kind: "conf", Source: "APT, whose hooks run as root (apt and its daily timers)", Paths: []string{"/etc/apt/apt.conf.d"}}},
+		Paths: map[string]PathEntry{"/": {Mode: 0o755, Type: "dir"}, "/etc": {Mode: 0o755, Type: "dir"},
+			"/etc/polkit-1": {Mode: 0o755, Type: "dir"}, "/etc/polkit-1/rules.d": {UID: 998, Mode: 0o700, Type: "dir"},
+			"/etc/apt": {Mode: 0o755, Type: "dir"}, "/etc/apt/apt.conf.d": {UID: 998, Mode: 0o755, Type: "dir"}},
+	}
+	got := f.writablePaths()
+	if len(got) != 1 || got[0].Path != "/etc/apt/apt.conf.d" {
+		t.Errorf("got %+v", got)
+	}
+	f.Paths["/etc/polkit-1/rules.d"] = PathEntry{UID: 1000, Mode: 0o700, Type: "dir"}
+	if got := f.writablePaths(); len(got) != 2 || got[0].Writers[0].Account != "bob" {
+		t.Errorf("bob's rules.d: %+v", got)
 	}
 }

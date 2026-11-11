@@ -90,7 +90,11 @@ func (w WritablePath) Use() string {
 	case "sudo":
 		return "named in the " + w.Source
 	case "config":
-		return "trusted by sudo, logins or the loader"
+		return "trusted by logins or the loader"
+	case "sudoers":
+		return "read by sudo"
+	case "conf":
+		return "configures " + w.Source
 	case "login":
 		return "used by the logins of " + w.Source + ", which can become root"
 	}
@@ -132,10 +136,29 @@ if [ -f /etc/environment ]; then
   echo "@@files path /etc/environment"
   sed -n 's/^[[:space:]]*PATH=//p' /etc/environment | tr -d '"' | tr ':' '\n'
 fi
-echo "@@files config account, sudo and loader configuration"
-for f in /etc/passwd /etc/shadow /etc/group /etc/sudoers /etc/sudoers.d /etc/sudoers.d/* /etc/ld.so.preload /etc/ld.so.conf /etc/ld.so.conf.d /etc/ld.so.conf.d/*; do
+echo "@@files config account and loader configuration"
+for f in /etc/passwd /etc/shadow /etc/group /etc/ld.so.preload /etc/ld.so.conf /etc/ld.so.conf.d /etc/ld.so.conf.d/*; do
   [ -e "$f" ] && echo "$f"
 done
+# sudo refuses a sudoers file that root does not own, or that a group
+# other than root's can write, and a file created in sudoers.d is its
+# creator's: only the files themselves count (see writablePaths).
+echo "@@files sudoers sudo"
+for f in /etc/sudoers /etc/sudoers.d/*; do [ -f "$f" ] && echo "$f"; done
+# Configuration that makes root run commands, none of which checks who
+# owns it (logrotate and NetworkManager's dispatcher do, so they are left
+# out).
+conf() { # SOURCE PATHS...
+  s=$1; shift
+  echo "@@files conf $s"
+  for f; do [ -e "$f" ] && echo "$f"; done
+}
+conf "PAM, which decides su, sudo and logins" /etc/pam.d /etc/pam.d/*
+conf "sshd, when it restarts (AuthorizedKeysCommand and the like)" /etc/ssh/sshd_config /etc/ssh/sshd_config.d /etc/ssh/sshd_config.d/*
+conf "polkit, which pkexec asks" /etc/polkit-1/rules.d /etc/polkit-1/rules.d/* /etc/polkit-1/localauthority /etc/polkit-1/localauthority/*.d /etc/polkit-1/localauthority/*.d/*
+conf "APT, whose hooks run as root (apt and its daily timers)" /etc/apt/apt.conf /etc/apt/apt.conf.d /etc/apt/apt.conf.d/*
+conf "modprobe, whose install lines run as root when a module loads" /etc/modprobe.conf /etc/modprobe.d /etc/modprobe.d/*
+conf "update-motd, run as root at every login" /etc/update-motd.d /etc/update-motd.d/*
 if [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1; then
   echo "@@files systemd systemd unit directory"
   echo /etc/systemd/system
@@ -781,8 +804,9 @@ func (f *Facts) writablePaths() []WritablePath {
 	out := []WritablePath{}
 	onPath := map[string]bool{} // a PATH directory is reported once, whichever lists name it
 	for _, j := range f.RootJobs {
-		// A login job lists a home and the files in it: a file whose
-		// writers its listed directory already has adds nothing.
+		// A login or conf job lists a directory and the files in it (a
+		// home, /etc/apt/apt.conf.d): a file whose writers its listed
+		// directory already has adds nothing.
 		reported := map[string]map[string]bool{}
 		covered := func(p string, ws []Writer) bool {
 			for d := path.Dir(p); ; d = path.Dir(d) {
@@ -807,8 +831,18 @@ func (f *Facts) writablePaths() []WritablePath {
 				}
 				onPath[p] = true
 			}
-			if ws := others(f.Writers(p), j.Account); len(ws) > 0 {
-				if j.Kind == "login" {
+			ws := others(f.Writers(p), j.Account)
+			switch {
+			case j.Kind == "sudoers":
+				ws = sudoersWriters(p, ws)
+			case j.Kind == "conf" && strings.HasPrefix(j.Source, "polkit"):
+				// RHEL and Fedora ship /etc/polkit-1/rules.d owned by
+				// polkitd (700): the daemon that decides is as strong as
+				// its rules already.
+				ws = others(ws, "polkitd")
+			}
+			if len(ws) > 0 {
+				if j.Kind == "login" || j.Kind == "conf" {
 					if covered(p, ws) {
 						continue
 					}
@@ -824,6 +858,22 @@ func (f *Facts) writablePaths() []WritablePath {
 					out = append(out, WritablePath{Kind: j.Kind, Source: j.Source, Path: c, CalledBy: p, Writers: ws})
 				}
 			}
+		}
+	}
+	return out
+}
+
+// sudoersWriters keeps the writers of a sudoers file that sudo would still
+// read it from: an ACL entry on the file, or its owning group when that is
+// root's (sudo accepts group write only for gid 0). sudo refuses a file
+// that root does not own, or one a group other than root's can write, and
+// whoever can write a directory above it can only put files of their own
+// there, which sudo refuses too (checked with sudo 1.9.16 on Debian 13).
+func sudoersWriters(p string, ws []Writer) []Writer {
+	var out []Writer
+	for _, w := range ws {
+		if w.Path == p && (strings.HasPrefix(w.How, "an ACL") || w.How == "group root") {
+			out = append(out, w)
 		}
 	}
 	return out

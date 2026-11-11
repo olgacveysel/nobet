@@ -13,6 +13,15 @@
   - The `disk` group wrote a file onto an ext4 device.
 - FS-003 now follows the accounts that can become root (UID 0, sudo for any command or a shell escape, root daemons' sockets, raw disks) to their login files: shell startup files (`.profile`, `.bashrc` and the like), `~/.ssh/rc`, and their home and `~/.ssh`. Whoever else can change them runs commands as that account at its next login. Their `authorized_keys` count only where sshd has `StrictModes no`: with it on, sshd refuses keys others can write. The account's own access is never reported, and a writable home is reported once rather than for every file in it.
   - Checked on Debian 13 with a deploy account with passwordless sudo. Another account's line in deploy's `.bashrc` (interactive login), `.profile` (login shell) and `~/.ssh/rc` (deploy's own key login) each wrote a root-owned file in `/etc`. A key planted in deploy's `authorized_keys` through a group-writable home or an ACL was refused under `StrictModes yes`, and let the other account in under `StrictModes no`.
+- FS-003 now covers configuration that makes root run commands: `/etc/pam.d`, sshd's configuration, polkit rules, APT's configuration (hooks), `/etc/modprobe.d` and `/etc/update-motd.d`. A writable directory is reported once, not for every file in it. RHEL's polkitd owning its own rules directory is not reported.
+  - Each was checked with another account on Debian 13 (update-motd on Ubuntu 24.04), each time running a command as root:
+    - PAM: a `pam_permit` line gave `su` with a wrong password.
+    - sshd: an `AuthorizedKeysCommand` that cats a key let its owner in as root after a restart.
+    - APT: `APT::Update::Pre-Invoke` ran with `apt-get update`.
+    - modprobe: an `install` line ran on `modprobe`.
+    - polkit: a rule let `pkexec` through.
+    - update-motd: a script ran at an SSH login.
+- FS-003 reported sudoers files that sudo would not read. sudo 1.9.16 refused a sudoers file owned by another account, one a group other than root's can write, and files someone else created in `/etc/sudoers.d`, so those are no longer reported. An ACL entry, or group write with group root, did let an account in, and still counts. logrotate refuses configs that root does not own or that others can write, so it is left out.
 
 ## v0.6.0 — 2026-11-10
 
