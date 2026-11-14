@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+- ACC-004 and the root access map now count limited sudo rules whose environment lets the caller load code of their own as root:
+  - the `SETENV` tag or `Defaults setenv`, through `sudo LD_PRELOAD=... cmd`
+  - `env_keep` keeping `LD_PRELOAD`
+  - `env_keep` keeping `PYTHONPATH`, `PERL5LIB` or `BASH_ENV`, for a script in that language
+
+  This includes Defaults bound to a user or a command.
+  - Checked with sudo 1.9.16 on Debian 13. Each case let an ordinary account write a root-owned file through `sudo /usr/bin/true` or a script.
+  - `env_keep += "LD_PRELOAD"` works only with the variable on sudo's command line, since glibc removes it from a setuid program's environment.
+  - `Defaults !env_reset` gave nothing, because sudo still drops `LD_*`. Neither did `PYTHONPATH` for a command that is not Python. Neither is reported.
+  - Stock RHEL's `env_keep` list is not reported.
+
 ## v0.7.0 — 2026-11-11
 
 - FS-006: file capabilities that give root. Critical when a program that can run anything (an interpreter, shell, editor, find, tar…) holds `cap_setuid`, `cap_sys_admin`, `cap_dac_override` or another capability that makes root, even only in its permitted set (python raises it itself); High when such a program can read every file (`cap_dac_read_search`) or root-level capabilities sit in /tmp or home directories; Medium for root-level capabilities on programs no package owns. Packaged programs with capabilities by design (RHEL's `newuidmap`), harmless ones (`cap_net_raw` on ping) and namespaced capabilities (`[rootid=N]`) are not reported. Needs `getcap`; skipped without it. Checked with an unprivileged account on Debian 13, AlmaLinux 9, CentOS 7 (old getcap output), Ubuntu 24.04 and Alpine.

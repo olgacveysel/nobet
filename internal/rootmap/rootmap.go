@@ -524,7 +524,11 @@ func sudoRoute(entries []collect.SudoEntry, pw string, authFor func(cmd string) 
 			continue
 		}
 		for _, c := range e.Escapes() {
-			consider("sudo "+c+" (shell escape)", 0, e.NoPasswd, c)
+			how := "shell escape"
+			if why := e.EnvEscapes[c]; why != "" {
+				how = why
+			}
+			consider("sudo "+c+" ("+how+")", 0, e.NoPasswd, c)
 		}
 	}
 	return best, rank >= 0

@@ -44,10 +44,14 @@ type SudoLine struct {
 
 // SudoEntry is one rule from `sudo -l -U user`: what the user may run as whom.
 type SudoEntry struct {
-	RunAs    string   `json:"run_as"`
-	NoPasswd bool     `json:"nopasswd"`
-	NoExec   bool     `json:"noexec,omitempty"`
-	Commands []string `json:"commands"`
+	RunAs    string `json:"run_as"`
+	NoPasswd bool   `json:"nopasswd"`
+	NoExec   bool   `json:"noexec,omitempty"`
+	SetEnv   bool   `json:"setenv,omitempty"` // the SETENV tag: the caller may set any variable
+	// EnvEscapes are the commands that run code of the caller's own through
+	// what sudo lets into their environment, with why (markEnvEscapes).
+	EnvEscapes map[string]string `json:"env_escapes,omitempty"`
+	Commands   []string          `json:"commands"`
 }
 
 // RootAll reports whether the rule lets the user run any command as root.
@@ -473,8 +477,11 @@ func Collect(r runner.Runner) *Facts {
 	}
 	if out, ok := run("sudo-rights", script(sudoRightsScript, true)); ok {
 		f.SudoRights, f.SudoDefaults = parseSudoRights(out)
+		f.markEnvEscapes()
 	}
 	f.collectRootPaths(func(name, body string) (string, bool) { return run(name, script(body, true)) })
+	// Again, now that the #! lines of the commands sudo rules name are known.
+	f.markEnvEscapes()
 
 	// Match blocks: ask sshd what applies to each root-capable account and
 	// from each address range the blocks name.
@@ -904,6 +911,10 @@ func parseSudoEntry(line string) (SudoEntry, bool) {
 			e.NoExec = true
 		case "EXEC":
 			e.NoExec = false
+		case "SETENV":
+			e.SetEnv = true
+		case "NOSETENV":
+			e.SetEnv = false
 		}
 		rest = strings.TrimSpace(after)
 	}

@@ -53,11 +53,89 @@ func (e SudoEntry) Escapes() []string {
 		if strings.HasPrefix(c, "!") {
 			continue
 		}
-		if escapes(c, e.NoExec) {
+		if escapes(c, e.NoExec) || e.EnvEscapes[c] != "" {
 			out = append(out, c)
 		}
 	}
 	return out
+}
+
+// markEnvEscapes sets EnvEscapes on the limited root rules whose commands
+// run code of the caller's own through their environment: a SETENV tag or
+// Defaults setenv (any variable, LD_PRELOAD too), env_keep keeping
+// LD_PRELOAD, or keeping PYTHONPATH, PERL5LIB or BASH_ENV for a script in
+// that language (known from the command itself or its #! line, which
+// Interpreters has for scripts outside the package directories). Checked
+// with sudo 1.9.16 on Debian 13: each of these wrote a root-owned file
+// through sudo /usr/bin/true or a script; Defaults !env_reset did not
+// (sudo still drops LD_*), nor PYTHONPATH for a command that is no Python.
+func (f *Facts) markEnvEscapes() {
+	for user, entries := range f.SudoRights {
+		for i, e := range entries {
+			if !e.AsRoot() || e.RootAll() {
+				continue
+			}
+			var esc map[string]string
+			for _, c := range e.Commands {
+				if strings.HasPrefix(c, "!") {
+					continue
+				}
+				flags := f.sudoFlags(user, "root", c)
+				why := ""
+				switch {
+				case e.SetEnv:
+					why = "SETENV lets the caller set LD_PRELOAD"
+				case flags["setenv"]:
+					why = "Defaults setenv lets the caller set LD_PRELOAD"
+				case flags["env_keep:LD_PRELOAD"]:
+					why = "env_keep keeps LD_PRELOAD"
+				default:
+					lang := f.scriptLanguage(c)
+					for v, l := range envEscapeVars {
+						if l != "" && l == lang && flags["env_keep:"+v] {
+							why = "env_keep keeps " + v + " for this " + l + " script"
+						}
+					}
+				}
+				if why != "" {
+					if esc == nil {
+						esc = map[string]string{}
+					}
+					esc[c] = why
+				}
+			}
+			entries[i].EnvEscapes = esc
+		}
+	}
+}
+
+// scriptLanguage says whether a sudo command runs python, perl or bash:
+// the program itself (python3.12, /usr/bin/perl), or the #! line of a
+// script outside the package directories. "" when neither tells.
+func (f *Facts) scriptLanguage(cmd string) string {
+	bin, _, _ := strings.Cut(strings.TrimSpace(cmd), " ")
+	lang := func(p string) string {
+		name := path.Base(p)
+		if i := strings.IndexByte(name, '.'); i > 0 {
+			name = name[:i]
+		}
+		switch strings.TrimRight(name, "0123456789") {
+		case "python":
+			return "python"
+		case "perl":
+			return "perl"
+		case "bash":
+			return "bash"
+		}
+		return ""
+	}
+	if l := lang(bin); l != "" {
+		return l
+	}
+	if i, ok := f.Interpreters[bin]; ok {
+		return lang(i)
+	}
+	return ""
 }
 
 // escapes reports whether one sudo command spec escapes to root.

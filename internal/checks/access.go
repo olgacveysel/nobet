@@ -231,11 +231,16 @@ var sudoShellEscape = Check{
 				continue // already has full root, nothing to escape from
 			}
 			var esc []string
-			nopasswd := false
+			nopasswd, env := false, false
 			for _, e := range f.SudoRights[u] {
 				for _, c := range e.Escapes() {
 					if usableSudo(f, u, e, c) {
-						esc = append(esc, c)
+						if why := e.EnvEscapes[c]; why != "" {
+							esc = append(esc, c+" ("+why+")")
+							env = true
+						} else {
+							esc = append(esc, c)
+						}
 						nopasswd = nopasswd || e.NoPasswd || f.SudoAuthFor(u, "root", c) == collect.SudoAuthNone
 					}
 				}
@@ -247,12 +252,16 @@ var sudoShellEscape = Check{
 			if nopasswd {
 				detail += " (no password needed)"
 			}
+			fix := "These programs can spawn a shell or overwrite any file as root (see gtfobins.github.io); allow a wrapper script with fixed arguments, use sudoedit for editing, or add NOEXEC where it suffices"
+			if env {
+				fix += ". Remove the SETENV tag and Defaults setenv, and keep LD_PRELOAD, PYTHONPATH, PERL5LIB and BASH_ENV out of env_keep: with them the caller loads code of their own into any command run as root"
+			}
 			out = append(out, Finding{
 				CheckID:  "ACC-004",
 				Severity: High,
 				Title:    "sudo rule for " + u + " gives a root shell despite limiting commands",
 				Detail:   detail,
-				Fix:      "These programs can spawn a shell or overwrite any file as root (see gtfobins.github.io); allow a wrapper script with fixed arguments, use sudoedit for editing, or add NOEXEC where it suffices",
+				Fix:      fix,
 			})
 		}
 		return out, ""

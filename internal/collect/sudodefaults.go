@@ -16,7 +16,8 @@ const (
 // authFlags are the sudo Defaults that decide whose password is asked for.
 var authFlags = set("authenticate", "rootpw", "targetpw", "runaspw")
 
-// SudoDefaults are the authentication Defaults sudo applies to one user, as
+// SudoDefaults are the Defaults sudo applies to one user that nobet uses
+// (authentication, setenv, env_keep of envEscapeVars), as
 // `sudo -l -U` reports them: the user's own, and those bound to a runas
 // user (Defaults>root) or to commands (Defaults!/usr/bin/vim).
 type SudoDefaults struct {
@@ -25,7 +26,7 @@ type SudoDefaults struct {
 }
 
 // ScopedDefault is a Defaults entry bound to runas users (Kind ">") or to
-// commands (Kind "!"). Only authentication flags are kept.
+// commands (Kind "!"). Only the flags readFlags keeps are kept.
 type ScopedDefault struct {
 	Kind  string          `json:"kind"`
 	List  []string        `json:"list"`
@@ -37,24 +38,7 @@ type ScopedDefault struct {
 // runAs. sudo applies the user's Defaults, then runas-specific, then
 // command-specific ones. NOPASSWD rules need no password either way.
 func (f *Facts) SudoAuthFor(user, runAs, cmd string) string {
-	flags := map[string]bool{"authenticate": true}
-	d := f.SudoDefaults[user]
-	for k, v := range d.Flags {
-		flags[k] = v
-	}
-	for _, kind := range []string{">", "!"} {
-		for _, s := range d.Scoped {
-			if s.Kind != kind {
-				continue
-			}
-			if kind == ">" && !matchRunAs(s.List, runAs) || kind == "!" && !matchCommand(s.List, cmd) {
-				continue
-			}
-			for k, v := range s.Flags {
-				flags[k] = v
-			}
-		}
-	}
+	flags := f.sudoFlags(user, runAs, cmd)
 	switch {
 	case !flags["authenticate"]:
 		return SudoAuthNone
@@ -97,18 +81,76 @@ func matchCommand(list []string, cmd string) bool {
 	return false
 }
 
-// readFlags keeps the authentication flags from a list of Defaults
-// settings, later ones overriding earlier ones.
+// envEscapeVars are the variables that, kept by env_keep, let the caller
+// run code of their own as root: LD_PRELOAD in any dynamically linked
+// command (given on sudo's command line: glibc removes it from a setuid
+// program's environment), the others in a script of that language.
+// Checked with sudo 1.9.16 on Debian 13; LD_LIBRARY_PATH needs a library
+// the command loads and was not tried.
+var envEscapeVars = map[string]string{"LD_PRELOAD": "", "PYTHONPATH": "python", "PERL5LIB": "perl", "BASH_ENV": "bash"}
+
+// readFlags keeps, from a list of Defaults settings, the authentication
+// flags, setenv, and which envEscapeVars env_keep keeps (as
+// "env_keep:NAME"), later ones overriding earlier ones.
 func readFlags(settings []string) map[string]bool {
 	var flags map[string]bool
+	set := func(k string, v bool) {
+		if flags == nil {
+			flags = map[string]bool{}
+		}
+		flags[k] = v
+	}
 	for _, s := range settings {
 		s = strings.TrimSpace(s)
 		name := strings.TrimPrefix(s, "!")
-		if authFlags[name] {
-			if flags == nil {
-				flags = map[string]bool{}
+		switch {
+		case authFlags[name] || name == "setenv":
+			set(name, !strings.HasPrefix(s, "!"))
+		case strings.HasPrefix(s, "env_keep"):
+			// env_keep="A B" replaces the list, += adds, -= removes.
+			rest := strings.TrimSpace(s[len("env_keep"):])
+			op := "="
+			for _, o := range []string{"+=", "-="} {
+				if strings.HasPrefix(rest, o) {
+					op = o
+				}
 			}
-			flags[name] = !strings.HasPrefix(s, "!")
+			rest = strings.TrimPrefix(strings.TrimPrefix(rest, op), "=")
+			if op == "=" {
+				for v := range envEscapeVars {
+					set("env_keep:"+v, false)
+				}
+			}
+			for _, v := range strings.Fields(strings.ReplaceAll(rest, `"`, "")) {
+				if _, ok := envEscapeVars[v]; ok {
+					set("env_keep:"+v, op != "-=")
+				}
+			}
+		}
+	}
+	return flags
+}
+
+// sudoFlags returns the Defaults flags (readFlags) that apply when user
+// runs cmd as runAs: the user's own, then runas-specific, then
+// command-specific ones, as sudo applies them.
+func (f *Facts) sudoFlags(user, runAs, cmd string) map[string]bool {
+	flags := map[string]bool{"authenticate": true}
+	d := f.SudoDefaults[user]
+	for k, v := range d.Flags {
+		flags[k] = v
+	}
+	for _, kind := range []string{">", "!"} {
+		for _, s := range d.Scoped {
+			if s.Kind != kind {
+				continue
+			}
+			if kind == ">" && !matchRunAs(s.List, runAs) || kind == "!" && !matchCommand(s.List, cmd) {
+				continue
+			}
+			for k, v := range s.Flags {
+				flags[k] = v
+			}
 		}
 	}
 	return flags

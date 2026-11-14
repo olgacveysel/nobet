@@ -309,7 +309,7 @@ Measured with 50 hosts (the size nöbet is built for): a full scan takes about 1
 | ACC-001 | Critical        | Accounts other than root with UID 0 |
 | ACC-002 | High / Medium   | Passwordless sudo rules, or sudo authentication disabled |
 | ACC-003 | Critical / High | Accounts that can control root's daemons or raw disks: the sockets of Docker, podman, containerd, CRI-O, Incus (`incus-admin`), LXD, libvirt and systemd, and block devices. Critical when every account can open one, High for the accounts a group, an ACL entry or polkit (libvirt) lets in, and for reading raw disks |
-| ACC-004 | High            | Limited sudo rules that still give a root shell or root file writes (editors, pagers, interpreters, `find`, `tee`… see GTFOBins) |
+| ACC-004 | High            | Limited sudo rules that still give a root shell or root file writes (editors, pagers, interpreters, `find`, `tee`… see GTFOBins), and any limited rule whose environment lets the caller load code of their own: the `SETENV` tag or `Defaults setenv`, `env_keep` keeping `LD_PRELOAD`, or keeping `PYTHONPATH`, `PERL5LIB` or `BASH_ENV` for a script in that language |
 | ACC-005 | Critical / High | Accounts with an empty password that can log in; Critical when the account can become root |
 | ACC-007 | Medium / Low    | Passwords stored as DES or MD5 hashes, which a leaked `/etc/shadow` gives away quickly; Medium when the account can become root. Only the algorithm's name is read |
 | ACC-006 | Medium / Low    | Authorized SSH keys that have not logged in for 90 days, from sshd's log messages (see below); Medium when the key reaches an account that can become root |
@@ -383,6 +383,7 @@ UPD-004 knows Ubuntu, Debian (including its free LTS period) and Raspbian, RHEL,
 - The account you scan with will show up in ACC-002 if it has passwordless sudo; add it to the allowlist.
 - `user@host` patterns in `AllowUsers` are treated as allowing the user from anywhere.
 - Shell-escape detection for limited sudo rules uses a built-in list of well-known programs; a custom script that runs other commands is not inspected (though FS-003 reports it when someone other than root can change it).
+- ACC-004 reads sudo's environment settings for `LD_PRELOAD`, `PYTHONPATH`, `PERL5LIB` and `BASH_ENV` (checked with sudo 1.9.16), not for other variables (`LD_LIBRARY_PATH` needs a library the command loads, and was not tried). Whether a command is a Python, Perl or bash script comes from its name or, outside the package directories, its `#!` line, so a packaged script such as `/usr/bin/ufw` with `PYTHONPATH` kept is not recognized.
 - FS-003 checks the files that command lines name with a path, script interpreters, the directories on root's PATH, and what those scripts run or source by absolute path, one level deep. Paths built from variables, and libraries, are not followed.
 - sudo Defaults are honored as `sudo -l` reports them, for the user, per runas user (`Defaults>root targetpw`) and per command (`Defaults!/usr/bin/vim rootpw`); host-bound Defaults are taken as already applied by sudo.
 - SUID and world-writable checks search /bin, /sbin, /usr, /opt, /etc, /tmp, /var/tmp, /home, /root and /srv, without crossing filesystems; the rest of /var is skipped because container storage holds many copies of SUID binaries.
@@ -412,7 +413,7 @@ UPD-004 knows Ubuntu, Debian (including its free LTS period) and Raspbian, RHEL,
 - [x] HTML and PDF reports for auditors (`-html`, `-pdf`)
 - [x] First tagged release, v0.1.0 (see CHANGELOG.md)
 - [x] Follow custom `AuthorizedKeysFile` and `AllowUsers`/`DenyUsers`/`AllowGroups`/`DenyGroups` in rootmap
-- [x] Flag limited sudo rules that allow shell escapes (GTFOBins)
+- [x] Flag limited sudo rules that allow shell escapes (GTFOBins), or code of the caller's own through `SETENV`, `LD_PRELOAD` or interpreter variables
 - [x] ssh-agent on Windows (OpenSSH named pipe)
 - [x] Evaluate sshd `Match` blocks (`sshd -T -C`)
 - [x] Password states from `/etc/shadow` (empty passwords, locked accounts in rootmap)
