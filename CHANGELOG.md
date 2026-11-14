@@ -12,6 +12,7 @@
   - `env_keep += "LD_PRELOAD"` works only with the variable on sudo's command line, since glibc removes it from a setuid program's environment.
   - `Defaults !env_reset` gave nothing, because sudo still drops `LD_*`. Neither did `PYTHONPATH` for a command that is not Python. Neither is reported.
   - Stock RHEL's `env_keep` list is not reported.
+- FS-003 now covers pam_env's files: `/etc/environment`, `/etc/security/pam_env.conf` and `/etc/default/locale`. An `LD_PRELOAD` that another account puts there runs in root's processes at root's SSH login and at `su -`; checked on Debian 13, while sudo was unaffected. `/etc/sudo.conf` stays out, since sudo refuses one that root does not own.
 
 ## v0.7.0 — 2026-11-11
 

@@ -299,7 +299,8 @@ func TestConfScript(t *testing.T) {
 	}
 	dir := t.TempDir()
 	for _, p := range []string{"etc/sudoers", "etc/sudoers.d/ops", "etc/pam.d/su", "etc/pam.d/sshd", "etc/ssh/sshd_config",
-		"etc/polkit-1/localauthority/50-local.d/x.pkla", "etc/apt/apt.conf.d/20auto-upgrades", "etc/update-motd.d/00-header"} {
+		"etc/polkit-1/localauthority/50-local.d/x.pkla", "etc/apt/apt.conf.d/20auto-upgrades", "etc/update-motd.d/00-header",
+		"etc/environment", "etc/default/locale"} {
 		os.MkdirAll(filepath.Join(dir, filepath.Dir(p)), 0o755)
 		os.WriteFile(filepath.Join(dir, p), nil, 0o644)
 	}
@@ -314,6 +315,7 @@ func TestConfScript(t *testing.T) {
 	want := []RootJob{
 		{Kind: "sudoers", Source: "sudo", Paths: []string{e + "/sudoers", e + "/sudoers.d/ops"}},
 		{Kind: "conf", Source: "PAM, which decides su, sudo and logins", Paths: []string{e + "/pam.d", e + "/pam.d/sshd", e + "/pam.d/su"}},
+		{Kind: "conf", Source: "pam_env, which sets the environment of every login, root's too (LD_PRELOAD)", Paths: []string{e + "/environment", e + "/default/locale"}},
 		{Kind: "conf", Source: "sshd, when it restarts (AuthorizedKeysCommand and the like)", Paths: []string{e + "/ssh/sshd_config", e + "/ssh/sshd_config.d"}},
 		{Kind: "conf", Source: "polkit, which pkexec asks", Paths: []string{e + "/polkit-1/localauthority", e + "/polkit-1/localauthority/50-local.d", e + "/polkit-1/localauthority/50-local.d/x.pkla"}},
 		{Kind: "conf", Source: "APT, whose hooks run as root (apt and its daily timers)", Paths: []string{e + "/apt/apt.conf.d", e + "/apt/apt.conf.d/20auto-upgrades"}},

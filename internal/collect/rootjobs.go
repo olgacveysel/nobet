@@ -146,7 +146,7 @@ done
 echo "@@files sudoers sudo"
 for f in /etc/sudoers /etc/sudoers.d/*; do [ -f "$f" ] && echo "$f"; done
 # Configuration that makes root run commands, none of which checks who
-# owns it (logrotate and NetworkManager's dispatcher do, so they are left
+# owns it (logrotate, NetworkManager's dispatcher and sudo.conf do, so they are left
 # out).
 conf() { # SOURCE PATHS...
   s=$1; shift
@@ -154,6 +154,7 @@ conf() { # SOURCE PATHS...
   for f; do [ -e "$f" ] && echo "$f"; done
 }
 conf "PAM, which decides su, sudo and logins" /etc/pam.d /etc/pam.d/*
+conf "pam_env, which sets the environment of every login, root's too (LD_PRELOAD)" /etc/environment /etc/security/pam_env.conf /etc/default/locale
 conf "sshd, when it restarts (AuthorizedKeysCommand and the like)" /etc/ssh/sshd_config /etc/ssh/sshd_config.d /etc/ssh/sshd_config.d/*
 conf "polkit, which pkexec asks" /etc/polkit-1/rules.d /etc/polkit-1/rules.d/* /etc/polkit-1/localauthority /etc/polkit-1/localauthority/*.d /etc/polkit-1/localauthority/*.d/*
 conf "APT, whose hooks run as root (apt and its daily timers)" /etc/apt/apt.conf /etc/apt/apt.conf.d /etc/apt/apt.conf.d/*
