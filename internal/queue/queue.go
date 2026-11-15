@@ -161,7 +161,7 @@ func Finish(dir string, results []Done) error {
 	for _, d := range results {
 		data, err := json.Marshal(d)
 		if err == nil {
-			err = os.WriteFile(filepath.Join(dir, d.ID+".done"), data, 0o640)
+			err = replaceFile(filepath.Join(dir, d.ID+".done"), data)
 		}
 		if err == nil {
 			err = os.Remove(filepath.Join(dir, d.ID+".running"))
@@ -242,6 +242,32 @@ func Recent(dir string, n int) ([]Done, error) {
 		out = out[:n]
 	}
 	return out, nil
+}
+
+// replaceFile puts data at path through a new temporary file and a rename.
+// The directory is one nobet-web can write: a symlink planted at path is
+// replaced, never written through, so a compromised dashboard cannot make
+// the scanner account overwrite its scan history or keys.
+func replaceFile(path string, data []byte) error {
+	f, err := os.CreateTemp(filepath.Dir(path), ".done-*") // O_EXCL: never an existing file
+	if err != nil {
+		return err
+	}
+	tmp := f.Name()
+	_, err = f.Write(data)
+	if err == nil {
+		err = f.Chmod(0o640)
+	}
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err == nil {
+		err = os.Rename(tmp, path)
+	}
+	if err != nil {
+		os.Remove(tmp)
+	}
+	return err
 }
 
 func readJSON(path string, v any) error {

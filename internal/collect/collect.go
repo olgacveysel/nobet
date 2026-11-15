@@ -4,7 +4,6 @@
 package collect
 
 import (
-	"bufio"
 	"encoding/base64"
 	"fmt"
 	"sort"
@@ -1007,11 +1006,11 @@ func parseFiles(s string) ([]SUIDFile, []WritableEntry) {
 }
 
 func lines(s string) []string {
+	// Not a bufio.Scanner: it stops at its line limit and drops the rest
+	// without a word, and host output can hold a line of any length.
 	var out []string
-	sc := bufio.NewScanner(strings.NewReader(s))
-	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-	for sc.Scan() {
-		if l := strings.TrimSpace(sc.Text()); l != "" {
+	for _, l := range strings.Split(s, "\n") {
+		if l = strings.TrimSpace(l); l != "" {
 			out = append(out, l)
 		}
 	}

@@ -240,11 +240,14 @@ awk -F: -v today="$today" '{
 }' /etc/shadow
 `
 
-// Asks sudo itself what each login-capable account may run. This follows
+// Asks sudo itself what each account may run, those without a login shell
+// too: a service account (www-data) runs code for others, and a web shell
+// in it can use its sudo rules (checked on Debian 13: www-data's
+// "NOPASSWD: /usr/bin/find" gave root). This follows
 // aliases, includes and LDAP rules that a sudoers parser would miss.
 const sudoRightsScript = `PATH=$PATH:/usr/sbin:/sbin
 command -v sudo >/dev/null 2>&1 || exit 0
-awk -F: '$7 !~ /(nologin|false)$/ {print $1}' /etc/passwd | while read -r u; do
+awk -F: '{print $1}' /etc/passwd | while read -r u; do
   echo "@@user $u"
   LC_ALL=C sudo -n -l -U "$u" 2>/dev/null
 done

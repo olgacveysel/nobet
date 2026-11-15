@@ -312,7 +312,7 @@ var emptyPasswords = Check{
 		}
 		var rootCapable, others []string
 		for _, s := range f.Shadow {
-			if s.Password != collect.PasswordEmpty || s.Expired || !loginShell(shells[s.User]) {
+			if s.Password != collect.PasswordEmpty || s.Expired || !collect.CanLogIn(shells[s.User]) {
 				continue
 			}
 			if canBecomeRoot(f, s.User) {
@@ -485,11 +485,6 @@ var weakPasswordHashes = Check{
 		}
 		return out, ""
 	},
-}
-
-// loginShell reports whether a shell lets the account log in or su.
-func loginShell(shell string) bool {
-	return shell != "" && !strings.HasSuffix(shell, "/nologin") && !strings.HasSuffix(shell, "/false")
 }
 
 // canBecomeRoot reports whether user is UID 0, may run any command (or a

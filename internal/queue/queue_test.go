@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -120,5 +121,38 @@ func TestFinishKeepsRecent(t *testing.T) {
 	recent, _ := Recent(dir, 100)
 	if len(recent) != keepDone || !recent[0].Finished.Equal(t0.Add(time.Duration(keepDone+4)*time.Hour)) {
 		t.Errorf("kept %d, newest %v", len(recent), recent[0].Finished)
+	}
+}
+
+// A symlink planted where the outcome goes (the dashboard can write the
+// directory) is replaced, not written through.
+func TestFinishDoesNotFollowSymlinks(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinks need privileges on Windows")
+	}
+	dir, other := t.TempDir(), t.TempDir()
+	victim := filepath.Join(other, "history.json")
+	os.WriteFile(victim, []byte("precious"), 0o600)
+	r, err := Submit(dir, "eve", nil, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Claim(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(victim, filepath.Join(dir, r.ID+".done")); err != nil {
+		t.Fatal(err)
+	}
+	if err := Finish(dir, []Done{{Request: r, Finished: time.Now()}}); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(victim); string(b) != "precious" {
+		t.Errorf("written through the symlink: %q", b)
+	}
+	if fi, err := os.Lstat(filepath.Join(dir, r.ID+".done")); err != nil || !fi.Mode().IsRegular() || fi.Mode().Perm() != 0o640 {
+		t.Errorf("outcome file: %v %v", fi, err)
+	}
+	if d, err := Recent(dir, 1); err != nil || len(d) != 1 || d[0].ID != r.ID {
+		t.Errorf("recent: %+v %v", d, err)
 	}
 }

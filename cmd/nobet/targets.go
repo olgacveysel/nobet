@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/x/term"
+
 	"github.com/olgacveysel/nobet/internal/fleet"
 	"github.com/olgacveysel/nobet/internal/inventory"
 	"github.com/olgacveysel/nobet/internal/scan"
@@ -200,8 +202,9 @@ func (t *targets) run(onDone func(i int, r scan.HostResult)) []scan.HostResult {
 	return results
 }
 
-// isTerminal reports whether f is an interactive terminal.
+// isTerminal reports whether f is an interactive terminal. /dev/null is a
+// character device too, so the file mode cannot tell (nobet scan >/dev/null
+// used to start the TUI).
 func isTerminal(f *os.File) bool {
-	st, err := f.Stat()
-	return err == nil && st.Mode()&os.ModeCharDevice != 0
+	return term.IsTerminal(f.Fd())
 }

@@ -8,6 +8,7 @@ import (
 
 	"github.com/olgacveysel/nobet/internal/brand"
 	"github.com/olgacveysel/nobet/internal/buildinfo"
+	"github.com/olgacveysel/nobet/internal/store"
 )
 
 // version is set at build time with -ldflags "-X main.version=0.1.0";
@@ -39,6 +40,7 @@ Run "nobet help <command>" or "nobet <command> -h" for details.
 
 func main() {
 	version = buildinfo.Version(version)
+	store.OnSkip = store.WarnOnce(func(format string, a ...any) { fmt.Fprintf(os.Stderr, format+"\n", a...) })
 	os.Exit(run(os.Args[1:]))
 }
 

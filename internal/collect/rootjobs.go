@@ -469,6 +469,17 @@ func sudoJobs(f *Facts) []RootJob {
 var loginFiles = []string{"", ".profile", ".bashrc", ".bash_profile", ".bash_login", ".bash_logout",
 	".zshenv", ".zshrc", ".zprofile", ".zlogin", ".ssh", ".ssh/rc"}
 
+// CanLogIn reports whether a login shell is a shell, as opposed to
+// nologin, false, or the sync, shutdown and halt accounts' commands. An
+// empty field is /bin/sh to login(1).
+func CanLogIn(shell string) bool {
+	switch path.Base(shell) {
+	case "nologin", "false", "sync", "shutdown", "halt":
+		return false
+	}
+	return true
+}
+
 // loginJobs lists the login files of every account that can become root:
 // UID 0, a sudo rule that runs any command or one that escapes to a shell
 // as root (with or without a password: a changed .bashrc can catch it), or
@@ -505,7 +516,7 @@ func loginJobs(f *Facts) []RootJob {
 	for _, p := range accts {
 		reason, ok := why[p.Name]
 		home := path.Clean(p.Home)
-		if !ok || seen[p.Name] || seen["home:"+home] || !strings.HasPrefix(p.Home, "/") || home == "/" {
+		if !ok || !CanLogIn(p.Shell) || seen[p.Name] || seen["home:"+home] || !strings.HasPrefix(p.Home, "/") || home == "/" {
 			continue
 		}
 		seen[p.Name], seen["home:"+home] = true, true

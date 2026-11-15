@@ -16,11 +16,13 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/olgacveysel/nobet/internal/checks"
 	"github.com/olgacveysel/nobet/internal/collect"
 	"github.com/olgacveysel/nobet/internal/scan"
+	"github.com/olgacveysel/nobet/internal/textclean"
 )
 
 // FormatVersion is bumped when the snapshot format changes incompatibly.
@@ -142,9 +144,31 @@ func fileMode(dir string) os.FileMode {
 	return 0o600
 }
 
+// OnSkip, when set, is told about each history file Walk skips, and why:
+// unreadable, not a snapshot, or another format version. The CLI prints
+// it, nobet-web logs it.
+var OnSkip func(path, why string)
+
+// WarnOnce returns an OnSkip that reports each file once through printf,
+// however often the history is read (nobet-web rereads it on changes).
+func WarnOnce(printf func(format string, a ...any)) func(path, why string) {
+	var mu sync.Mutex
+	seen := map[string]bool{}
+	return func(path, why string) {
+		mu.Lock()
+		defer mu.Unlock()
+		if !seen[path] {
+			seen[path] = true
+			printf("note: skipped %s in the scan history: %s", path, why)
+		}
+	}
+}
+
 // Walk calls fn with each snapshot in dir, oldest first, reading one file
 // at a time so that a long history never has to fit in memory. Unreadable
-// files are skipped; a missing directory means no history.
+// files are skipped (and reported to OnSkip); a missing directory means no
+// history. Host text in snapshots written by versions that did not clean
+// it is cleaned here, so no escape sequence reaches a terminal.
 func Walk(dir string, fn func(Snapshot) error) error {
 	entries, err := os.ReadDir(dir)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -160,15 +184,28 @@ func Walk(dir string, fn func(Snapshot) error) error {
 		}
 	}
 	sort.Strings(names) // names are timestamps, so this is chronological
+	skip := func(p, why string) {
+		if OnSkip != nil {
+			OnSkip(p, why)
+		}
+	}
 	for _, name := range names {
-		data, err := os.ReadFile(filepath.Join(dir, name))
+		p := filepath.Join(dir, name)
+		data, err := os.ReadFile(p)
 		if err != nil {
+			skip(p, err.Error())
 			continue
 		}
 		var s Snapshot
-		if json.Unmarshal(data, &s) != nil || s.Version != FormatVersion {
+		if err := json.Unmarshal(data, &s); err != nil {
+			skip(p, "not a scan snapshot: "+err.Error())
 			continue
 		}
+		if s.Version != FormatVersion {
+			skip(p, fmt.Sprintf("snapshot format %d, this version reads %d", s.Version, FormatVersion))
+			continue
+		}
+		textclean.Strings(&s)
 		if err := fn(s); err != nil {
 			return err
 		}

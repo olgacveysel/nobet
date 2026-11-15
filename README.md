@@ -11,7 +11,7 @@
 
 *Nöbet* is Turkish for a watch or guard shift.
 
-> Status: early development (v0.4).
+> Status: early development (v0.7).
 
 ## Principles
 
@@ -242,7 +242,7 @@ nobet-web -listen 127.0.0.1:8080 -public-url https://nobet.example.com \
   -audit-log /var/log/nobet-web/audit.jsonl
 ```
 
-Register `https://nobet.example.com/auth/callback` as the client's redirect URI. Allow people by email, username or subject (`-allow-users`), or by group (`-allow-groups`, read from the `groups` claim; `-groups-claim realm_access.roles` for Keycloak roles, and add `groups` to `-oidc-scopes` where the provider needs it). nobet-web uses the authorization code flow with PKCE, checks the state and nonce, and keeps the session in a signed, HttpOnly, SameSite cookie (`__Host-` prefixed over HTTPS) for 8 hours (`-session-ttl`). Serve HTTPS with `-tls-cert`/`-tls-key`, or put a TLS proxy in front. With sign-in, Prometheus cannot scrape the main listener, so use `-metrics-listen 127.0.0.1:9187`.
+Register `https://nobet.example.com/auth/callback` as the client's redirect URI. Allow people by email, username or subject (`-allow-users`; an email counts only when the provider marks it verified, `email_verified` true, which Microsoft Entra ID never sends, so name Entra users by subject or group), or by group (`-allow-groups`, read from the `groups` claim; `-groups-claim realm_access.roles` for Keycloak roles, and add `groups` to `-oidc-scopes` where the provider needs it). nobet-web uses the authorization code flow with PKCE, checks the state and nonce, and keeps the session in a signed, HttpOnly, SameSite cookie (`__Host-` prefixed over HTTPS) for 8 hours (`-session-ttl`). Serve HTTPS with `-tls-cert`/`-tls-key`, or put a TLS proxy in front. With sign-in, Prometheus cannot scrape the main listener, so use `-metrics-listen 127.0.0.1:9187`.
 
 `-audit-log` appends one JSON line per page view, sign-in, refusal and sign-out, with the user, the page and the time; it works behind a proxy too (with `-user-header`).
 

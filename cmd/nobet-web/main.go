@@ -126,6 +126,7 @@ func run(args []string) int {
 		audit = f
 	}
 	logger := log.New(os.Stderr, "", log.LstdFlags)
+	store.OnSkip = store.WarnOnce(logger.Printf)
 	srv, err := web.New(web.Options{HistoryDir: dir, Version: version, StaleAfter: *stale, UserHeader: *userHeader, KeysFile: *keysFile,
 		Metrics: *metrics && *metricsListen == "", Auth: authCfg, Audit: audit, Log: logger,
 		ScanQueue: *scanQueue, ScanUsers: list(*scanUsers), ScanGroups: list(*scanGroups)})

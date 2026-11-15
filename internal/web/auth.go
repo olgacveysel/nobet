@@ -268,13 +268,27 @@ func (a *auth) allowed(sub string, claims map[string]any) bool {
 	return a.cfg.AnyUser || a.inList(a.cfg.Users, a.cfg.Groups, sub, claims)
 }
 
+// emailVerified reports whether the provider vouches for the email claim:
+// email_verified true, or "true" from providers that send claims as
+// strings (Amazon Cognito). A missing claim is not a yes: Microsoft Entra
+// ID sends none, and its email can be set by the user.
+func emailVerified(claims map[string]any) bool {
+	switch v := claims["email_verified"].(type) {
+	case bool:
+		return v
+	case string:
+		return strings.EqualFold(v, "true")
+	}
+	return false
+}
+
 // inList reports whether the user is one of users (by subject, verified
 // email or preferred_username, case-insensitive) or in one of groups.
 func (a *auth) inList(users, wantGroups []string, sub string, claims map[string]any) bool {
 	names := []string{sub}
 	for _, k := range []string{"email", "preferred_username"} {
 		if v, ok := claims[k].(string); ok && v != "" {
-			if k == "email" && claims["email_verified"] == false {
+			if k == "email" && !emailVerified(claims) {
 				continue // an unverified address could be anyone's
 			}
 			names = append(names, v)

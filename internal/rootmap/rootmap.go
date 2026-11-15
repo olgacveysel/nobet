@@ -8,7 +8,6 @@ package rootmap
 import (
 	"fmt"
 	"io"
-	"path"
 	"sort"
 	"strings"
 	"text/tabwriter"
@@ -399,7 +398,7 @@ func Routes(f *collect.Facts) (map[string][]Route, []string) {
 					continue
 				}
 				for _, p := range f.Passwd {
-					if !uid0[p.Name] && canLogIn(p.Shell) {
+					if !uid0[p.Name] && collect.CanLogIn(p.Shell) {
 						add(p.Name, Route{Via: how})
 					}
 				}
@@ -424,16 +423,6 @@ func Routes(f *collect.Facts) (map[string][]Route, []string) {
 	return routes, gaps
 }
 
-// canLogIn reports whether a login shell is a shell, as opposed to
-// nologin, false, or the sync, shutdown and halt accounts' commands.
-func canLogIn(shell string) bool {
-	switch path.Base(shell) {
-	case "nologin", "false", "sync", "shutdown", "halt":
-		return false
-	}
-	return true
-}
-
 // maxFileRoutes caps the routes listed per account through files root
 // runs; FS-003 lists them all.
 const maxFileRoutes = 3
@@ -444,7 +433,7 @@ const maxFileRoutes = 3
 func fileRoutes(f *collect.Facts, uid0 map[string]bool, add func(string, Route)) {
 	var logins []string
 	for _, p := range f.Passwd {
-		if !uid0[p.Name] && canLogIn(p.Shell) {
+		if !uid0[p.Name] && collect.CanLogIn(p.Shell) {
 			logins = append(logins, p.Name)
 		}
 	}

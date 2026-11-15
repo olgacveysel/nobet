@@ -220,6 +220,11 @@ func TestSignInDenied(t *testing.T) {
 	}{
 		{"not listed", map[string]any{"sub": "u2", "email": "mallory@example.com"}, http.StatusForbidden},
 		{"unverified email", map[string]any{"sub": "u3", "email": "alice@example.com", "email_verified": false}, http.StatusForbidden},
+		// No email_verified at all (Microsoft Entra ID): not vouched for.
+		{"email without email_verified", map[string]any{"sub": "u5", "email": "alice@example.com"}, http.StatusForbidden},
+		{"email_verified as the string false", map[string]any{"sub": "u6", "email": "alice@example.com", "email_verified": "false"}, http.StatusForbidden},
+		// Amazon Cognito sends booleans as strings.
+		{"email_verified as the string true", map[string]any{"sub": "u7", "email": "alice@example.com", "email_verified": "true"}, http.StatusFound},
 		{"group via dotted claim", map[string]any{"sub": "u4", "email": "bob@example.com", "realm_access": map[string]any{"roles": []any{"nobet-viewers"}}}, http.StatusFound},
 		{"subject", map[string]any{"sub": "alice@example.com"}, http.StatusFound},
 	}

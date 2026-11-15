@@ -2,6 +2,7 @@ package collect
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -249,5 +250,15 @@ func TestParseFiles(t *testing.T) {
 	}
 	if len(ww) != 2 || !ww[0].Dir || ww[1].Dir {
 		t.Errorf("ww: %+v", ww)
+	}
+}
+
+// A line longer than bufio.Scanner's limit used to end the output there,
+// silently.
+func TestLinesLong(t *testing.T) {
+	long := strings.Repeat("x", 2<<20)
+	got := lines("first\r\n" + long + "\n\n  last  \n")
+	if len(got) != 3 || got[0] != "first" || len(got[1]) != len(long) || got[2] != "last" {
+		t.Errorf("got %d lines", len(got))
 	}
 }

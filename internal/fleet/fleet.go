@@ -4,11 +4,14 @@
 package fleet
 
 import (
+	"fmt"
 	"sync"
 	"time"
 
 	"github.com/olgacveysel/nobet/internal/checks"
+	"github.com/olgacveysel/nobet/internal/runner"
 	"github.com/olgacveysel/nobet/internal/scan"
+	"github.com/olgacveysel/nobet/internal/textclean"
 	"github.com/olgacveysel/nobet/internal/transport"
 )
 
@@ -20,10 +23,24 @@ func Local(cmdTimeout time.Duration) scan.HostResult {
 	if r, err := transport.NewLocal(cmdTimeout); err != nil {
 		res.Error = err.Error()
 	} else {
-		scan.Evaluate(&res, r)
+		evaluate(&res, r)
 	}
+	textclean.Strings(&res) // host output reaches terminals: no escape sequences
 	res.DurationMS = time.Since(start).Milliseconds()
 	return res
+}
+
+// evaluate scans one host. A panic (a parser meeting output it does not
+// expect) fails that host only, as an error, instead of the whole run and
+// with it every other host's result, the saved history and the alert.
+func evaluate(res *scan.HostResult, r runner.Runner) {
+	defer func() {
+		if p := recover(); p != nil {
+			res.Error = fmt.Sprintf("internal error while checking this host (please report it): %v", p)
+			res.Findings, res.Suppressed, res.Skipped, res.Facts = []checks.Finding{}, nil, nil, nil
+		}
+	}()
+	scan.Evaluate(res, r)
 }
 
 // Target is a remote host to scan: its display name and either a resolved
@@ -69,9 +86,10 @@ func remoteHost(t Target, opts transport.SSHOptions) scan.HostResult {
 	case err != nil:
 		res.Error = err.Error()
 	default:
-		scan.Evaluate(&res, client)
+		evaluate(&res, client)
 		client.Close()
 	}
+	textclean.Strings(&res) // host output reaches terminals: no escape sequences
 	res.DurationMS = time.Since(start).Milliseconds()
 	return res
 }

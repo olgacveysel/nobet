@@ -13,6 +13,13 @@
   - `Defaults !env_reset` gave nothing, because sudo still drops `LD_*`. Neither did `PYTHONPATH` for a command that is not Python. Neither is reported.
   - Stock RHEL's `env_keep` list is not reported.
 - FS-003 now covers pam_env's files: `/etc/environment`, `/etc/security/pam_env.conf` and `/etc/default/locale`. An `LD_PRELOAD` that another account puts there runs in root's processes at root's SSH login and at `su -`; checked on Debian 13, while sudo was unaffected. `/etc/sudo.conf` stays out, since sudo refuses one that root does not own.
+- Sudo rights are now read for every account, not only those with a login shell. A service account runs code for others, and a web shell running as `www-data` can use its rules: on Debian 13, `www-data ALL=(root) NOPASSWD: /usr/bin/find` gave root, yet earlier versions reported only a Medium "passwordless sudo rule". Such accounts now reach ACC-004 and the root access map. FS-003 still follows login files only for accounts with a login shell.
+- Text from scanned hosts no longer carries control characters to your terminal. Key comments, paths and error output with escape sequences could retitle the terminal, clear it or fake output in the text report, TUI, root access map and `nobet diff`. They are replaced with `?` as each host is scanned, and in scans read from the history.
+- A panic while checking one host (a parser meeting output it does not expect) now fails that host with an error, instead of ending the whole run and with it every other host's result, the saved history and the `-on-change` alert.
+- `nobet scan -queue` writes a request's outcome through a new file and a rename. The queue directory is one nobet-web can write, and a symlink planted there was written through as the scanner account.
+- History files that cannot be read (damaged, or from another format version) are reported once on stderr by the CLI and in nobet-web's log, instead of being skipped in silence.
+- nobet-web matches an email in `-allow-users` only when the provider marks it verified (`email_verified` true, or `"true"` as Amazon Cognito sends it). A missing claim used to count as verified. Microsoft Entra ID sends none, so name Entra users by subject or group.
+- `nobet scan >/dev/null` no longer starts the TUI (`/dev/null` passed as a terminal). Collector output with a line over 1 MB is no longer cut off there without a word.
 
 ## v0.7.0 — 2026-11-11
 

@@ -12,12 +12,14 @@ func TestLoginJobs(t *testing.T) {
 			{Name: "root", UID: 0, GID: 0, Home: "/root"}, {Name: "deploy", UID: 1000, GID: 1000, Home: "/home/deploy"},
 			{Name: "bob", UID: 1001, GID: 1001, Home: "/home/bob"}, {Name: "ops", UID: 1002, GID: 1002, Home: "/home/ops"},
 			{Name: "svc", UID: 999, GID: 999, Home: "/"}, {Name: "web", UID: 1003, GID: 1003, Home: "/var/www"},
+			{Name: "www-data", UID: 33, GID: 33, Home: "/var/www", Shell: "/usr/sbin/nologin"}, // sudo find: root, but it never logs in
 		},
 		Groups: []GroupEntry{{Name: "devs", GID: 2000, Members: []string{"deploy", "bob"}}, {Name: "docker", GID: 102, Members: []string{"svc"}}},
 		SudoRights: map[string][]SudoEntry{
-			"deploy": {{RunAs: "ALL", Commands: []string{"ALL"}, NoPasswd: true}},
-			"ops":    {{RunAs: "root", Commands: []string{"/usr/bin/vim"}}},                   // escapes, password asked
-			"web":    {{RunAs: "root", Commands: []string{"/usr/sbin/service nginx reload"}}}, // no root
+			"deploy":   {{RunAs: "ALL", Commands: []string{"ALL"}, NoPasswd: true}},
+			"ops":      {{RunAs: "root", Commands: []string{"/usr/bin/vim"}}},                   // escapes, password asked
+			"web":      {{RunAs: "root", Commands: []string{"/usr/sbin/service nginx reload"}}}, // no root
+			"www-data": {{RunAs: "root", Commands: []string{"/usr/bin/find"}, NoPasswd: true}},
 		},
 		SSHD:      map[string][]string{"strictmodes": {"yes"}, "authorizedkeysfile": {".ssh/authorized_keys .ssh/authorized_keys2"}},
 		RootDoors: []RootDoor{{Path: "/run/docker.sock", Kind: "docker", Accounts: []string{"svc"}, Group: "docker"}},
