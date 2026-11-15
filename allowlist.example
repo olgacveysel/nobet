@@ -7,7 +7,9 @@
 # check-id   a check such as ACC-002, or * for any check
 # host-glob  shell-style pattern: *, web*, db0[1-3]
 # text       optional; must appear in the finding's title or detail
-#            (case-insensitive)
+#            (case-insensitive). A finding that lists several accounts,
+#            files or packages stays hidden only while the rules cover
+#            every one of them (or the text is in its title)
 # reason     everything after " #"; shown in JSON output
 # until=     optional, until=YYYY-MM-DD: the rule covers findings through
 #            that day only, so the exception comes back for review

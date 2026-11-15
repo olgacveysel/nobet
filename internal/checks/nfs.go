@@ -118,6 +118,7 @@ var nfsExports = Check{
 				Severity: sev,
 				Title:    "NFS export " + k.path + " lets " + who + " " + verb + " it as " + as,
 				Detail:   strings.Join(notes, "; "),
+				Items:    notes,
 				Fix:      "In /etc/exports (or /etc/exports.d): " + strings.Join(fixes, ", ") + "; then run exportfs -ra",
 			})
 		}

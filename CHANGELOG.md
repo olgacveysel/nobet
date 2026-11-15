@@ -20,6 +20,11 @@
 - History files that cannot be read (damaged, or from another format version) are reported once on stderr by the CLI and in nobet-web's log, instead of being skipped in silence.
 - nobet-web matches an email in `-allow-users` only when the provider marks it verified (`email_verified` true, or `"true"` as Amazon Cognito sends it). A missing claim used to count as verified. Microsoft Entra ID sends none, so name Entra users by subject or group.
 - `nobet scan >/dev/null` no longer starts the TUI (`/dev/null` passed as a terminal). Collector output with a line over 1 MB is no longer cut off there without a word.
+- Allowlist rules and findings that list several things (the accounts in a group, the files others can change, pending packages, listening ports): such a finding stays hidden only while the rules cover every item, or the rule's text is in its title.
+  - Before, `ACC-003 * alice` kept hiding the finding after mallory joined the group, because "alice" was still in its detail. In the lab, v0.7.0 hid it and this version shows it.
+  - The check covers every item, including those the detail shortens to "and N more". Several rules can cover one finding together; it is listed with all of them, their reasons, and the earliest `until=`.
+  - Findings carry the list as `items` in JSON output.
+- The scan history is kept per host and by age, not as the newest 100 files. Each host keeps its newest 100 scans (`-keep`), so rescanning one host over and over from the dashboard no longer pushes the rest of the fleet's history out. Scans older than a year are deleted (`-max-age`, `0` keeps them). Files nobet cannot read are deleted only by age.
 
 ## v0.7.0 — 2026-11-11
 

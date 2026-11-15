@@ -41,7 +41,7 @@ func TestSaveLoadPrune(t *testing.T) {
 		t.Errorf("Recent(2) should keep the newest two, oldest first: %+v", two["web01"])
 	}
 
-	if err := Prune(dir, 2); err != nil {
+	if err := Prune(dir, 2, 0, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	var first time.Time

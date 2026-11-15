@@ -68,7 +68,7 @@ var readablePrivateKeys = Check{
 			if k.ACL {
 				fnd.Fix = "setfacl -b " + k.Path + " (removes its ACL entries); " + fnd.Fix
 			}
-			fnd.Detail = strings.Join(notes, "; ")
+			fnd.Detail, fnd.Items = strings.Join(notes, "; "), k.Readers
 			out = append(out, fnd)
 		}
 		return out, ""

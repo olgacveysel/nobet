@@ -260,6 +260,7 @@ var pamBypass = Check{
 				Severity: Critical,
 				Title:    "PAM accepts any password for " + strings.Join(open, ", "),
 				Detail:   "a wrong password gets through the auth stack (" + strings.Join(through, "; ") + "): any account can become root with su or sudo, or log in, with whatever password it types",
+				Items:    through,
 				Fix:      "Restore the distribution's PAM files for these services (or remove the line that lets the password through), and find out who changed them: an auth stack that always succeeds is a classic backdoor",
 			})
 		}
@@ -269,6 +270,7 @@ var pamBypass = Check{
 				Severity: High,
 				Title:    "Some accounts can su to root without a password",
 				Detail:   strings.Join(skips, "; "),
+				Items:    skips,
 				Fix:      "Remove the trust option from pam_wheel.so (and any sufficient pam_succeed_if.so) in /etc/pam.d/su, so su asks for root's password",
 			})
 		}

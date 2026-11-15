@@ -28,29 +28,29 @@ func TestCarryOpen(t *testing.T) {
 	var open map[openKey]time.Time
 	steps := []struct {
 		h    HostSnapshot
-		want map[checks.Finding]time.Time
+		want map[openKey]time.Time
 	}{
 		// Day 1: two findings open.
 		{snap(1, nil, sudo, f("UPD-001", "3 pending security update(s)", "apt: libssl3, openssl, curl"), key1),
-			map[checks.Finding]time.Time{sudo: day(1), key1: day(1)}},
+			map[openKey]time.Time{keyOf(sudo): day(1), keyOf(key1): day(1)}},
 		// Day 2: more updates, a different list, and the key's day count
 		// moved on: still the same findings. A second stale key is new.
 		{snap(2, nil, sudo, f("UPD-001", "5 pending security update(s)", "apt: libssl3, openssl, curl, git, vim"), key1later, key2),
-			map[checks.Finding]time.Time{f("UPD-001", "5 pending security update(s)", "apt: libssl3, openssl, curl, git, vim"): day(1), key1later: day(1), key2: day(2)}},
+			map[openKey]time.Time{keyOf(f("UPD-001", "5 pending security update(s)", "apt: libssl3, openssl, curl, git, vim")): day(1), keyOf(key1later): day(1), keyOf(key2): day(2)}},
 		// Day 3: scanned without root, so ACC-002 and ACC-006 were skipped:
 		// they stay open. UPD-001 ran and is gone.
 		{snap(3, []string{"ACC-002", "ACC-006"}),
-			map[checks.Finding]time.Time{sudo: day(1), key2: day(2)}},
+			map[openKey]time.Time{keyOf(sudo): day(1), keyOf(key2): day(2)}},
 		// Day 4: back with root; the sudo rule was fixed, then returns on
 		// day 5 as a new finding.
-		{snap(4, nil, key1later, key2), map[checks.Finding]time.Time{key2: day(2), key1later: day(1)}},
-		{snap(5, nil, sudo, key2), map[checks.Finding]time.Time{sudo: day(5), key2: day(2)}},
+		{snap(4, nil, key1later, key2), map[openKey]time.Time{keyOf(key2): day(2), keyOf(key1later): day(1)}},
+		{snap(5, nil, sudo, key2), map[openKey]time.Time{keyOf(sudo): day(5), keyOf(key2): day(2)}},
 	}
 	for i, s := range steps {
 		open = carryOpen(open, s.h)
-		for fd, want := range s.want {
-			if got, ok := open[keyOf(fd)]; !ok || !got.Equal(want) {
-				t.Errorf("step %d, %s %q: opened %v (%v), want %v", i+1, fd.CheckID, fd.Title, got, ok, want)
+		for k, want := range s.want {
+			if got, ok := open[k]; !ok || !got.Equal(want) {
+				t.Errorf("step %d, %q: opened %v (%v), want %v", i+1, k.exact, got, ok, want)
 			}
 		}
 	}

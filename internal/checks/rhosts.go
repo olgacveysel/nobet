@@ -76,12 +76,14 @@ var hostBasedLogin = Check{
 			out = append(out, Finding{CheckID: "SSH-006", Severity: High,
 				Title:  "root can log in over SSH from other hosts without a key or password",
 				Detail: "host-based login trusts " + strings.Join(rootFrom, ", ") + ": whoever is root on those hosts, or has their host key, is root here",
+				Items:  rootFrom,
 				Fix:    "Remove /root/.rhosts and /root/.shosts, and set IgnoreRhosts yes (the default) or HostbasedAuthentication no in sshd_config"})
 		}
 		if len(anyUserFrom) > 0 {
 			out = append(out, Finding{CheckID: "SSH-006", Severity: High,
 				Title:  "Remote accounts can log in over SSH as any account but root, without a key or password",
 				Detail: "an equiv file names a remote user (" + strings.Join(anyUserFrom, ", ") + "), which lets that user in as every local account except root",
+				Items:  anyUserFrom,
 				Fix:    "Remove the user names from /etc/hosts.equiv and /etc/ssh/shosts.equiv, or set HostbasedAuthentication no in sshd_config"})
 		}
 		if len(sameUserFrom)+len(accountFrom) > 0 {
@@ -95,6 +97,7 @@ var hostBasedLogin = Check{
 			out = append(out, Finding{CheckID: "SSH-006", Severity: Medium,
 				Title:  "Accounts can log in over SSH from other hosts without a key or password",
 				Detail: strings.Join(detail, "; ") + "; whoever is root on those hosts can log in as them",
+				Items:  append(append([]string(nil), sameUserFrom...), accountFrom...),
 				Fix:    "Use SSH keys instead: set HostbasedAuthentication no in sshd_config and remove the trust files, or keep the list to hosts you administer as tightly as this one"})
 		}
 		return out, ""

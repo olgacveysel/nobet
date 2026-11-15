@@ -53,6 +53,7 @@ var pendingSecurityUpdates = Check{
 				Severity: Medium,
 				Title:    fmt.Sprintf("%d pending package update(s)", len(u.Pending)),
 				Detail:   "apk: " + summarize(u.Pending, 8) + "; apk does not say which updates fix security issues, and Alpine's stable branches receive mostly security and bug fixes",
+				Items:    u.Pending,
 				Fix:      updateFix[u.Manager],
 			}}, ""
 		case len(u.Security) == 0:
@@ -72,6 +73,7 @@ var pendingSecurityUpdates = Check{
 			Severity: sev,
 			Title:    fmt.Sprintf("%d pending security update(s)", len(u.Security)),
 			Detail:   u.Manager + ": " + summarize(names, 8),
+			Items:    names,
 			Fix:      updateFix[u.Manager],
 		}}, ""
 	},

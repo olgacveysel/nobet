@@ -44,6 +44,7 @@ var polkitRoot = Check{
 				Severity: sev,
 				Title:    "A polkit rule lets " + who + " become root without a password",
 				Detail:   file + " answers yes, without asking for a password, for: " + strings.Join(granted, "; "),
+				Items:    granted,
 				Fix:      "Remove the rule, or have it ask for an administrator's password (polkit.Result.AUTH_ADMIN, or auth_admin in a .pkla file)",
 			})
 		}

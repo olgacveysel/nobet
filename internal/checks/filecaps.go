@@ -60,24 +60,28 @@ var fileCaps = Check{
 			out = append(out, Finding{CheckID: "FS-006", Severity: Critical,
 				Title:  "Capabilities on a program that can spawn a root shell",
 				Detail: summarize(shells, 6),
+				Items:  shells,
 				Fix:    "Remove them (setcap -r <file>); any local user can become root through these"})
 		}
 		if len(readers) > 0 {
 			out = append(out, Finding{CheckID: "FS-006", Severity: High,
 				Title:  "Capabilities on a program that can read every file",
 				Detail: summarize(readers, 6) + ": any local user can read /etc/shadow and root's keys through these",
+				Items:  readers,
 				Fix:    "Remove them (setcap -r <file>)"})
 		}
 		if len(writablePlace) > 0 {
 			out = append(out, Finding{CheckID: "FS-006", Severity: High,
 				Title:  "Programs with root-level capabilities in temporary or home directories",
 				Detail: summarize(writablePlace, 6),
+				Items:  writablePlace,
 				Fix:    "Programs with capabilities do not belong in /tmp or home directories; investigate how they got there and remove them"})
 		}
 		if len(unpackaged) > 0 {
 			out = append(out, Finding{CheckID: "FS-006", Severity: Medium,
 				Title:  "Programs with root-level capabilities not owned by any installed package",
 				Detail: summarize(unpackaged, 6),
+				Items:  unpackaged,
 				Fix:    "Confirm each one is expected and cannot be made to run other code; remove the capabilities otherwise (setcap -r <file>)"})
 		}
 		return out, ""

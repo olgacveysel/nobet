@@ -56,6 +56,7 @@ var suidFiles = Check{
 				Severity: Critical,
 				Title:    "SUID set on a program that can spawn a root shell",
 				Detail:   summarize(escapes, 6),
+				Items:    escapes,
 				Fix:      "Remove the SUID bit (chmod u-s <file>); any local user can become root through these",
 			})
 		}
@@ -65,6 +66,7 @@ var suidFiles = Check{
 				Severity: High,
 				Title:    "SUID files in temporary or home directories",
 				Detail:   summarize(writableDirs, 6),
+				Items:    writableDirs,
 				Fix:      "SUID binaries do not belong in /tmp or home directories; investigate how they got there and remove them",
 			})
 		}
@@ -74,6 +76,7 @@ var suidFiles = Check{
 				Severity: Medium,
 				Title:    "SUID files not owned by any installed package",
 				Detail:   summarize(unpackaged, 6),
+				Items:    unpackaged,
 				Fix:      "Confirm each one is expected (vendor software in /opt often is); remove the SUID bit otherwise",
 			})
 		}
@@ -103,6 +106,7 @@ var worldWritable = Check{
 				Severity: High,
 				Title:    "World-writable files in system directories",
 				Detail:   summarize(files, 6),
+				Items:    files,
 				Fix:      "Any user can modify these (chmod o-w <file>); check scripts and configs under /etc first",
 			})
 		}
@@ -112,6 +116,7 @@ var worldWritable = Check{
 				Severity: High,
 				Title:    "World-writable directories without the sticky bit",
 				Detail:   summarize(dirs, 6),
+				Items:    dirs,
 				Fix:      "Remove world write access (chmod o-w), or add the sticky bit (chmod +t) if it is a shared drop directory",
 			})
 		}
@@ -162,6 +167,7 @@ var rootWritable = Check{
 				Severity: Critical,
 				Title:    "Any account can change files that root runs",
 				Detail:   joinSome(anyone, 5) + note,
+				Items:    anyone,
 				Fix:      "Remove world write access (chmod o-w) from these files and the directories above them; any local user or compromised service becomes root through them",
 			})
 		}
@@ -175,6 +181,7 @@ var rootWritable = Check{
 				Severity: High,
 				Title:    "Accounts other than root can change files that root runs",
 				Detail:   joinSome(accounts, 5) + note,
+				Items:    accounts,
 				Fix:      fix + "); the accounts named can become root by editing them",
 			})
 		}

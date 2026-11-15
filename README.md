@@ -149,6 +149,8 @@ CTR-001  *     traefik  until=2027-01-31  # needs the Docker socket; review
 
 A rule with `until=YYYY-MM-DD` covers findings through that day and none after it, so an accepted risk comes back for review instead of staying hidden for good; scans say on stderr which rules have ended and which end within two weeks, and the dashboard and reports show the date with each allowlisted finding.
 
+A finding that lists several things (the accounts in a group, the files others can change, pending packages, listening ports) is hidden only when your rules cover every one of them, or when the rule's text is in the finding's title. `ACC-003 * alice` hides "1 account(s) can write raw disks" while alice is the only one; once mallory joins, the finding comes back. Several rules can cover one finding together, one item each.
+
 Allowlisted findings disappear from reports and no longer affect the exit code, but they are counted ("3 allowlisted") and listed with their reason in `-json` output, so nothing is hidden silently. See `allowlist.example`.
 
 ### Alerts on changes
@@ -161,7 +163,7 @@ When a scan finds changes since the previous one, nöbet runs the `-on-change` c
 
 ### What changed: `nobet diff`
 
-Every scan is saved to `~/.local/share/nobet/scans` (directory mode 0700, files 0600; the newest 100 are kept; skip with `-no-save`). Use `-history-dir DIR` on `scan` and `diff`, or set `NOBET_DATA_DIR` (history in `$NOBET_DATA_DIR/scans`), to keep a shared history instead; in a directory you made group-readable, scans are saved 0640. After a scan, nöbet tells you how many things changed since that host's previous scan, and `nobet diff` shows them:
+Every scan is saved to `~/.local/share/nobet/scans` (directory mode 0700, files 0600; skip with `-no-save`). Each host keeps its newest 100 scans (`-keep`), and scans older than a year are deleted (`-max-age 365d`, `0` keeps them), so rescanning one host often from the dashboard pushes out only that host's older scans. Use `-history-dir DIR` on `scan` and `diff`, or set `NOBET_DATA_DIR` (history in `$NOBET_DATA_DIR/scans`), to keep a shared history instead; in a directory you made group-readable, scans are saved 0640. After a scan, nöbet tells you how many things changed since that host's previous scan, and `nobet diff` shows them:
 
 ```
 == web01  (2026-10-11 09:00 → 2026-10-12 09:00)

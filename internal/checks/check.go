@@ -60,6 +60,11 @@ type Finding struct {
 	Title    string   `json:"title"`
 	Detail   string   `json:"detail,omitempty"`
 	Fix      string   `json:"fix,omitempty"`
+	// Items are the things a finding lists (accounts, files, ports,
+	// packages), all of them even where Detail names only the first few.
+	// An allowlist rule suppresses such a finding only when it covers
+	// every item, so a new one shows up again.
+	Items []string `json:"items,omitempty"`
 }
 
 // Check evaluates facts. Run returns the findings (none means pass), or a

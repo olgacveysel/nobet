@@ -92,6 +92,7 @@ var sshWeakAlgorithms = Check{
 			Severity: sev,
 			Title:    title,
 			Detail:   strings.Join(parts, "; "),
+			Items:    parts,
 			Fix:      fix,
 		}}, ""
 	},

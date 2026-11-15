@@ -104,6 +104,7 @@ var rootGroupMembers = Check{
 					Severity: High,
 					Title:    fmt.Sprintf("%d account(s) in the %s group, which is equivalent to root", len(members), g),
 					Detail:   "members: " + strings.Join(members, ", ") + " (the sockets themselves could not be checked: " + f.Errors["doors"] + ")",
+					Items:    members,
 					Fix:      "Membership in " + g + " grants root on the host; limit it to trusted admins or use a rootless setup",
 				})
 			}
@@ -192,19 +193,21 @@ var rootGroupMembers = Check{
 					fix = "Remove these accounts from the disk group (and any ACL entries on the devices); writing a disk changes any file on it"
 				}
 				out = append(out, Finding{CheckID: "ACC-003", Severity: High, Title: title,
-					Detail: strings.Join(parts, "; ") + " through " + paths, Fix: fix})
+					Detail: strings.Join(parts, "; ") + " through " + paths, Fix: fix, Items: k.accounts})
 			}
 			switch {
 			case len(k.readAll) > 0:
 				out = append(out, Finding{CheckID: "ACC-003", Severity: High,
 					Title:  "Every account can read raw disks, and with them every file",
 					Detail: strings.Join(k.readAll, ", ") + " can be read by every account, and with it /etc/shadow and private keys",
+					Items:  k.readAll,
 					Fix:    "Give the disk devices back their packaged permissions (owner root, group disk, mode 660)"})
 			case len(k.readers) > 0:
 				sort.Strings(k.readers)
 				out = append(out, Finding{CheckID: "ACC-003", Severity: High,
 					Title:  fmt.Sprintf("%d account(s) can read raw disks, and with them every file", len(k.readers)),
 					Detail: strings.Join(k.readers, ", ") + " can read " + strings.Join(k.withReaders, ", ") + ", including /etc/shadow and private keys",
+					Items:  k.readers,
 					Fix:    "Remove read access to the disk devices for these accounts"})
 			}
 		}
@@ -329,6 +332,7 @@ var emptyPasswords = Check{
 				Severity: Critical,
 				Title:    "Root-capable accounts have no password",
 				Detail:   summarize(rootCapable, 6) + "; any local user can su to them and then become root",
+				Items:    rootCapable,
 				Fix:      fix,
 			})
 		}
@@ -338,6 +342,7 @@ var emptyPasswords = Check{
 				Severity: High,
 				Title:    "Accounts have no password",
 				Detail:   summarize(others, 6) + "; any local user can su to them",
+				Items:    others,
 				Fix:      fix,
 			})
 		}
@@ -471,6 +476,7 @@ var weakPasswordHashes = Check{
 				Severity: Medium,
 				Title:    "Root-capable accounts have passwords stored with weak hashes",
 				Detail:   summarize(rootCapable, 6) + "; if /etc/shadow or a backup of it leaks, these passwords can be cracked",
+				Items:    rootCapable,
 				Fix:      fix,
 			})
 		}
@@ -480,6 +486,7 @@ var weakPasswordHashes = Check{
 				Severity: Low,
 				Title:    "Accounts have passwords stored with weak hashes",
 				Detail:   summarize(others, 6) + "; if /etc/shadow or a backup of it leaks, these passwords can be cracked",
+				Items:    others,
 				Fix:      fix,
 			})
 		}

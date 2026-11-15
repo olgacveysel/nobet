@@ -185,6 +185,7 @@ var exposedListeners = Check{
 				Severity: Info,
 				Title:    fmt.Sprintf("%d other service(s) listening on all interfaces", len(others)),
 				Detail:   strings.Join(others, ", "),
+				Items:    others,
 				Fix:      "Confirm each one is meant to be reachable from the network",
 			})
 		}
@@ -297,6 +298,7 @@ func dockerBypass(f *collect.Facts) []Finding {
 		Severity: Low,
 		Title:    "The firewall does not filter the ports Docker publishes",
 		Detail:   summarize(ports, 8) + ": reachable from the network whatever " + fw + " allows, since Docker forwards them before " + fw + " sees them",
+		Items:    ports,
 		Fix:      "Publish ports that need not be public on 127.0.0.1 or a private address (-p 127.0.0.1:8080:80), or filter them in the DOCKER-USER chain (iptables -I DOCKER-USER ...)",
 	}}
 }

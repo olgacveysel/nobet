@@ -16,7 +16,11 @@
 // The check ID may be * for any check. The host glob uses shell-style
 // patterns (*, ?, [abc]). The optional match text must appear in the
 // finding's title or detail (case-insensitive, whitespace-normalized).
-// Everything after a # that starts a word is the reason.
+// A finding that lists several things (the accounts in a group, the files
+// others can change, pending packages) is hidden only when the rules cover
+// every one of them, or the match text is in its title: allowing alice
+// does not hide the finding once mallory is listed too. Everything after
+// a # that starts a word is the reason.
 //
 // A word until=YYYY-MM-DD makes the rule expire: it covers findings through
 // that day (in the scanning machine's time zone) and none after it, so an
@@ -34,6 +38,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -144,12 +149,28 @@ func splitComment(s string) (line, comment string) {
 }
 
 // Find returns the first rule that covers finding f on host on the given
-// day (YYYY-MM-DD): rules that expired before it do not.
+// day (YYYY-MM-DD): rules that expired before it do not. A finding that
+// lists items needs them all covered (Cover).
 func (l *List) Find(host string, f checks.Finding, day string) (Rule, bool) {
-	if l == nil {
+	rules, ok := l.Cover(host, f, day)
+	if !ok {
 		return Rule{}, false
 	}
-	text := normalize(f.Title + " " + f.Detail)
+	return rules[0], true
+}
+
+// Cover returns the rules that together cover finding f on host on the
+// given day. A finding without items is covered by one rule whose match
+// text is in its title or detail. A finding that lists items (accounts,
+// files, ports) is covered by a rule without match text or whose text is
+// in its title, or else when every item contains the match text of some
+// rule: a rule naming alice must not keep hiding the finding once mallory
+// is listed too.
+func (l *List) Cover(host string, f checks.Finding, day string) ([]Rule, bool) {
+	if l == nil {
+		return nil, false
+	}
+	var applies []Rule
 	for _, r := range l.Rules {
 		if r.Until != "" && day > r.Until {
 			continue
@@ -160,12 +181,50 @@ func (l *List) Find(host string, f checks.Finding, day string) (Rule, bool) {
 		if ok, _ := path.Match(r.Host, host); !ok {
 			continue
 		}
-		if r.Match != "" && !strings.Contains(text, normalize(r.Match)) {
-			continue
-		}
-		return r, true
+		applies = append(applies, r)
 	}
-	return Rule{}, false
+	if len(f.Items) == 0 {
+		text := normalize(f.Title + " " + f.Detail)
+		for _, r := range applies {
+			if r.Match == "" || strings.Contains(text, normalize(r.Match)) {
+				return []Rule{r}, true
+			}
+		}
+		return nil, false
+	}
+	title := normalize(f.Title)
+	for _, r := range applies {
+		if r.Match == "" || strings.Contains(title, normalize(r.Match)) {
+			return []Rule{r}, true
+		}
+	}
+	var used []Rule
+	for _, item := range f.Items {
+		item = normalize(item)
+		found := false
+		for _, r := range applies {
+			if strings.Contains(item, normalize(r.Match)) {
+				if !containsRule(used, r) {
+					used = append(used, r)
+				}
+				found = true
+				break
+			}
+		}
+		if !found {
+			return nil, false
+		}
+	}
+	return used, true
+}
+
+func containsRule(rules []Rule, r Rule) bool {
+	for _, x := range rules {
+		if x.Line == r.Line {
+			return true
+		}
+	}
+	return false
 }
 
 // Apply moves findings covered by the list today from r.Findings to
@@ -180,13 +239,22 @@ func (l *List) ApplyAt(r *scan.HostResult, now time.Time) {
 	day := now.Format(time.DateOnly)
 	kept := r.Findings[:0]
 	for _, f := range r.Findings {
-		if rule, ok := l.Find(r.Host, f, day); ok {
-			r.Suppressed = append(r.Suppressed, scan.Suppressed{
-				Finding: f,
-				Reason:  rule.Reason,
-				Until:   rule.Until,
-				Rule:    fmt.Sprintf("%s:%d", filepath.Base(l.Path), rule.Line),
-			})
+		if rules, ok := l.Cover(r.Host, f, day); ok {
+			// Several rules can cover one finding's items together: name
+			// them all, give their reasons, and end with the first to end.
+			s := scan.Suppressed{Finding: f}
+			var names, reasons []string
+			for _, rule := range rules {
+				names = append(names, fmt.Sprintf("%s:%d", filepath.Base(l.Path), rule.Line))
+				if rule.Reason != "" && !slices.Contains(reasons, rule.Reason) {
+					reasons = append(reasons, rule.Reason)
+				}
+				if rule.Until != "" && (s.Until == "" || rule.Until < s.Until) {
+					s.Until = rule.Until
+				}
+			}
+			s.Rule, s.Reason = strings.Join(names, ", "), strings.Join(reasons, "; ")
+			r.Suppressed = append(r.Suppressed, s)
 			continue
 		}
 		kept = append(kept, f)

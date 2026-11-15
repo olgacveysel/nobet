@@ -63,6 +63,7 @@ var kernelHardening = Check{
 			Severity: sev,
 			Title:    "Kernel hardening settings are weakened",
 			Detail:   strings.Join(bad, "; "),
+			Items:    bad,
 			Fix:      "Set them back in /etc/sysctl.d/99-hardening.conf (for example kernel.randomize_va_space = 2) and apply with sysctl --system; check what set them first",
 		}}, ""
 	},

@@ -240,8 +240,11 @@ func Recent(dir string, n int) (map[string][]HostSnapshot, []string, error) {
 	return recent, hosts, err
 }
 
-// Prune deletes all but the newest keep snapshots.
-func Prune(dir string, keep int) error {
+// Prune deletes snapshots no host needs any more: each host keeps its
+// newest keepPerHost scans, so asking the dashboard to rescan one host over
+// and over pushes out only that host's older scans, not the fleet's. A
+// snapshot older than maxAge (0: no limit) goes in any case.
+func Prune(dir string, keepPerHost int, maxAge time.Duration, now time.Time) error {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return err
@@ -252,12 +255,47 @@ func Prune(dir string, keep int) error {
 			names = append(names, e.Name())
 		}
 	}
-	sort.Strings(names) // names are timestamps, so this is chronological
-	for len(names) > keep {
-		if err := os.Remove(filepath.Join(dir, names[0])); err != nil {
-			return fmt.Errorf("pruning history: %w", err)
+	sort.Sort(sort.Reverse(sort.StringSlice(names))) // newest first: names are timestamps
+	kept := map[string]int{}                         // scans kept so far, per host
+	for _, name := range names {
+		p := filepath.Join(dir, name)
+		var s struct {
+			Version int       `json:"version"`
+			Time    time.Time `json:"time"`
+			Hosts   []struct {
+				Host string `json:"host"`
+			} `json:"hosts"`
 		}
-		names = names[1:]
+		data, err := os.ReadFile(p)
+		readable := err == nil && json.Unmarshal(data, &s) == nil && s.Version == FormatVersion
+		old := false
+		if maxAge > 0 {
+			when := s.Time
+			if !readable {
+				if fi, err := os.Stat(p); err == nil {
+					when = fi.ModTime()
+				}
+			}
+			old = !when.IsZero() && now.Sub(when) > maxAge
+		}
+		needed := false
+		if readable && !old {
+			for _, h := range s.Hosts {
+				if kept[h.Host] < keepPerHost {
+					needed = true
+				}
+			}
+			for _, h := range s.Hosts {
+				kept[h.Host]++
+			}
+		}
+		// A file nobet cannot read goes only by age: what it holds is
+		// unknown, and Walk reports it.
+		if old || readable && !needed {
+			if err := os.Remove(p); err != nil {
+				return fmt.Errorf("pruning history: %w", err)
+			}
+		}
 	}
 	return nil
 }

@@ -20,8 +20,12 @@ import (
 	"github.com/olgacveysel/nobet/internal/tui"
 )
 
-// historyKeep is how many saved scans are kept for drift detection.
-const historyKeep = 100
+// historyKeep is how many saved scans each host keeps, and historyMaxAge
+// how old a saved scan may get; scan's -keep and -max-age change them.
+const (
+	historyKeep   = 100
+	historyMaxAge = 365 * 24 * time.Hour
+)
 
 func runScan(args []string) int {
 	fs := flag.NewFlagSet("nobet scan", flag.ContinueOnError)
@@ -31,6 +35,8 @@ func runScan(args []string) int {
 	failOn := fs.String("fail-on", "high", "exit 1 if any finding is at or above this severity: info|low|medium|high|critical")
 	allowPath := fs.String("allow", "", "allowlist file (default: "+displayPath(allow.DefaultPath())+" if it exists)")
 	noSave := fs.Bool("no-save", false, "do not save this scan to the history used by 'nobet diff'")
+	keep := fs.Int("keep", historyKeep, "scans to keep in the history per host")
+	maxAge := fs.String("max-age", "365d", "delete saved scans older than this (30d, 12w, 8760h; 0 keeps them)")
 	histDir := addHistoryFlag(fs)
 	htmlPath := fs.String("html", "", "also write a self-contained HTML report (findings and root access map) to this file")
 	pdfPath := fs.String("pdf", "", "also write the report as a PDF to this file")
@@ -97,6 +103,18 @@ func runScan(args []string) int {
 	if *onChange != "" && *noSave {
 		fmt.Fprintln(os.Stderr, "nobet: -on-change compares with the saved history, so it cannot be used with -no-save")
 		return exitUsage
+	}
+	if *keep < 1 {
+		fmt.Fprintln(os.Stderr, "nobet: -keep must be at least 1")
+		return exitUsage
+	}
+	var age time.Duration
+	if *maxAge != "0" {
+		var err error
+		if age, err = parseSince(*maxAge); err != nil {
+			fmt.Fprintln(os.Stderr, "nobet: -max-age:", err)
+			return exitUsage
+		}
 	}
 
 	allowList, err := loadAllowlist(*allowPath)
@@ -172,7 +190,7 @@ func runScan(args []string) int {
 		if *jsonOut {
 			out = os.Stderr
 		}
-		saveAndSummarize(out, *histDir, results, started, *onChange)
+		saveAndSummarize(out, *histDir, results, started, *onChange, *keep, age)
 	}
 	if len(claimed) > 0 {
 		finishQueue(*queueDir, claimed, results, ignored, started, "")
@@ -279,7 +297,7 @@ func loadAllowlist(p string) (*allow.List, error) {
 // saveAndSummarize stores the scan and prints a one-line drift summary
 // against each host's previous scan, then runs the -on-change command if
 // anything changed. History problems never fail a scan.
-func saveAndSummarize(out *os.File, histDir string, results []scan.HostResult, at time.Time, onChange string) {
+func saveAndSummarize(out *os.File, histDir string, results []scan.HostResult, at time.Time, onChange string, keep int, maxAge time.Duration) {
 	dir, err := historyDir(histDir)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "nobet: scan history unavailable:", err)
@@ -302,7 +320,9 @@ func saveAndSummarize(out *os.File, histDir string, results []scan.HostResult, a
 		fmt.Fprintln(os.Stderr, "nobet: saving scan history:", err)
 		return
 	}
-	_ = store.Prune(dir, historyKeep)
+	if err := store.Prune(dir, keep, maxAge, at); err != nil {
+		fmt.Fprintln(os.Stderr, "nobet:", err)
+	}
 
 	if changes, hosts := drift.Count(drifts); changes > 0 {
 		fmt.Fprintf(out, "%d change(s) on %d host(s) since the previous scan. Run 'nobet diff' for details.\n", changes, hosts)
