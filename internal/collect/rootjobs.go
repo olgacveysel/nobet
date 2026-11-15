@@ -815,9 +815,12 @@ func (f *Facts) chainWriters(p string, add func(Writer)) {
 	}
 }
 
-// chain lists p and every directory above it, ending with "/".
+// chain lists p and every directory above it, ending with "/". p comes
+// from host output, so a relative or empty one is anchored at "/" rather
+// than walked up forever (path.Dir stops at ".", never at "/"; found by
+// FuzzParsers).
 func chain(p string) []string {
-	p = path.Clean(p)
+	p = path.Clean("/" + p)
 	out := []string{p}
 	for p != "/" {
 		p = path.Dir(p)

@@ -29,6 +29,10 @@
   - FS-001, FS-002 and FS-006 list the first 500 SUID files, 200 world-writable entries and 200 files with capabilities. An Info finding now says how many more were found and not checked. In the lab, 600 SUID copies in a chroot under /opt gave "108 more SUID files were found and not checked".
   - FS-003 reports the files root uses whose paths it leaves out (spaces, quotes or `$`, which nobet does not put into a shell script), where it used to drop them in silence.
 - The sudoers, shadow, file permission, authorized keys and sudo rights collectors now end with a marker. A listing cut short counts as not collected (the check is skipped with "the listing stopped early") instead of passing on part of the data. Stock Debian 13, AlmaLinux 9 and Alpine scans give the same findings as before.
+- A host that printed an empty or relative path where an absolute one belongs (in the permission listings) made nobet loop until it ran out of memory, ending the whole scan. Found by fuzzing the parsers.
+- Tests:
+  - The SSH transport is tested against an in-process SSH server. A changed or unknown host key, including a jump host's, is refused. A stored ed25519 key is used when the server also offers ECDSA. Wrong client keys, exit codes, command and handshake timeouts, jump chains and jump loops are covered too.
+  - Fuzz tests run every parser of host output and the whole scan, from collectors to checks, against arbitrary host output.
 
 ## v0.7.0 — 2026-11-11
 

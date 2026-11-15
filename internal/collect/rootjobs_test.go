@@ -369,3 +369,12 @@ func TestPolkitdOwnsRules(t *testing.T) {
 		t.Errorf("bob's rules.d: %+v", got)
 	}
 }
+
+// A path from host output may be anything; chain must still end.
+func TestChainEnds(t *testing.T) {
+	for in, want := range map[string]int{"": 1, ".": 1, "..": 1, "a/b": 3, "/a/b": 3, "//a/../b/": 2, "/": 1} {
+		if got := chain(in); len(got) != want || got[len(got)-1] != "/" {
+			t.Errorf("chain(%q) = %q", in, got)
+		}
+	}
+}
