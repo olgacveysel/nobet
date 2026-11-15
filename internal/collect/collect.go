@@ -191,16 +191,20 @@ type Facts struct {
 	Polkit *Polkit `json:"-"`
 	// Host-based trust entries (hosts.equiv, shosts.equiv, ~/.rhosts,
 	// ~/.shosts); root only (other accounts' homes).
-	HostTrust   []HostTrust
-	Updates     *Updates
-	Reboot      *Reboot
-	AutoUpdates map[string]string // how automatic updates are set up (autoUpdatesScript keys); nil if unknown
-	Sysctl      map[string]string // kernel settings by sysctl name (kernel.randomize_va_space); nil if unknown
-	Firewall    *Firewall
-	SUID        []SUIDFile
-	FileCaps    []FileCap  // files with capabilities; nil when not collected (root only, needs getcap)
-	RootDoors   []RootDoor // root daemons' sockets and raw disks others can open; nil when not collected
-	Writable    []WritableEntry
+	HostTrust     []HostTrust
+	Updates       *Updates
+	Reboot        *Reboot
+	AutoUpdates   map[string]string // how automatic updates are set up (autoUpdatesScript keys); nil if unknown
+	Sysctl        map[string]string // kernel settings by sysctl name (kernel.randomize_va_space); nil if unknown
+	Firewall      *Firewall
+	SUID          []SUIDFile
+	SUIDMore      int        `json:",omitempty"` // SUID files found beyond the first 500, not listed
+	FileCaps      []FileCap  // files with capabilities; nil when not collected (root only, needs getcap)
+	RootDoors     []RootDoor // root daemons' sockets and raw disks others can open; nil when not collected
+	Writable      []WritableEntry
+	WritableMore  int      `json:",omitempty"` // world-writable entries beyond the first 200, not listed
+	FileCapsMore  int      `json:",omitempty"` // files with capabilities beyond the first 200, not listed
+	RootUnchecked []string `json:",omitempty"` // paths root uses that FS-003 left out: characters nobet keeps out of scripts
 	// Files root runs or trusts that other accounts can change; nil if not
 	// collected (root only). Only this result is kept in the scan history:
 	// the listing it comes from is large.
@@ -408,28 +412,41 @@ func Collect(r runner.Runner) *Facts {
 		}
 		return f
 	}
-	if out, ok := run("sudoers", script(sudoersScript, true)); ok {
+	// done reads a collector whose output ends with "@@end": without it the
+	// data stays nil (not collected) and the reason is recorded.
+	done := func(name, body string) (string, bool) {
+		out, ok := run(name, script(body, true))
+		if !ok {
+			return "", false
+		}
+		if out, ok = complete(out); !ok {
+			f.Errors[name] = "the listing stopped early"
+		}
+		return out, ok
+	}
+	if out, ok := done("sudoers", sudoersScript); ok {
 		f.Sudoers = parseSudoers(out)
 		if f.Sudoers == nil {
 			f.Sudoers = []SudoLine{}
 		}
 	}
-	if out, ok := run("shadow", script(shadowScript, true)); ok {
+	if out, ok := done("shadow", shadowScript); ok {
 		f.Shadow = parseShadow(out)
 	}
 	if out, ok := run("firewall", script(firewallScript, true)); ok {
 		f.Firewall = parseFirewall(out)
 	}
-	if out, ok := run("files", script(filesScript, true)); ok {
-		f.SUID, f.Writable = parseFiles(out)
+	if out, ok := done("files", filesScript); ok {
+		f.SUID, f.Writable, f.SUIDMore, f.WritableMore = parseFiles(out)
 	}
 	if out, ok := run("filecaps", script(fileCapsScript, true)); ok {
 		var e string
 		if f.FileCaps, e = parseFileCaps(out); e != "" {
 			f.Errors["filecaps"] = e
 		}
+		f.FileCapsMore = count(out, "capsmore=")
 	}
-	if out, ok := run("authkeys", script(authKeysScript, true)); ok {
+	if out, ok := done("authkeys", authKeysScript); ok {
 		f.AuthKeys = parseAuthKeys(out)
 		if f.AuthKeys == nil {
 			f.AuthKeys = []AuthKey{}
@@ -474,7 +491,7 @@ func Collect(r runner.Runner) *Facts {
 			f.Errors["credentials"] = "the credential file listing stopped early"
 		}
 	}
-	if out, ok := run("sudo-rights", script(sudoRightsScript, true)); ok {
+	if out, ok := done("sudo-rights", sudoRightsScript); ok {
 		f.SudoRights, f.SudoDefaults = parseSudoRights(out)
 		f.markEnvEscapes()
 	}
@@ -520,7 +537,8 @@ func (f *Facts) collectRootPaths(run func(name, body string) (string, bool)) {
 	jobs = append(jobs, sudoJobs(f)...)
 	jobs = append(jobs, securePathJob(f.Sudoers)...)
 	jobs = append(jobs, loginJobs(f)...)
-	paths, truncated := rootPaths(jobs)
+	paths, unsafe, truncated := rootPathsSplit(jobs)
+	f.RootUnchecked = unsafe
 	if out, ok = run("root-paths", pathsScript(paths)); !ok {
 		return
 	}
@@ -986,10 +1004,14 @@ func nftInput(lines []string) (rules int, drop bool) {
 }
 
 // parseFiles reads filesScript output.
-func parseFiles(s string) ([]SUIDFile, []WritableEntry) {
-	suid, ww := []SUIDFile{}, []WritableEntry{}
+func parseFiles(s string) (suid []SUIDFile, ww []WritableEntry, suidMore, wwMore int) {
+	suid, ww = []SUIDFile{}, []WritableEntry{}
 	for _, line := range lines(s) {
 		switch {
+		case strings.HasPrefix(line, "suidmore="):
+			suidMore, _ = strconv.Atoi(strings.TrimPrefix(line, "suidmore="))
+		case strings.HasPrefix(line, "wwmore="):
+			wwMore, _ = strconv.Atoi(strings.TrimPrefix(line, "wwmore="))
 		case strings.HasPrefix(line, "suid="):
 			owner, path, ok := strings.Cut(strings.TrimPrefix(line, "suid="), " ")
 			if ok && path != "" {
@@ -1002,7 +1024,33 @@ func parseFiles(s string) ([]SUIDFile, []WritableEntry) {
 			}
 		}
 	}
-	return suid, ww
+	return suid, ww, suidMore, wwMore
+}
+
+// count reads the number on a "key=N" line of a collector's output (0
+// without one).
+func count(out, key string) int {
+	for _, line := range lines(out) {
+		if v, ok := strings.CutPrefix(line, key); ok {
+			n, _ := strconv.Atoi(v)
+			return n
+		}
+	}
+	return 0
+}
+
+// complete returns a collector's output without its closing "@@end", and
+// whether it was there: a listing that ends early (a killed loop, a cut
+// connection) must not read as a complete one.
+func complete(s string) (string, bool) {
+	t := strings.TrimRight(s, " \t\r\n")
+	if t == "@@end" {
+		return "", true
+	}
+	if body, ok := strings.CutSuffix(t, "\n@@end"); ok {
+		return body, true
+	}
+	return s, false
 }
 
 func lines(s string) []string {

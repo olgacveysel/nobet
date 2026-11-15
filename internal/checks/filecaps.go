@@ -84,6 +84,6 @@ var fileCaps = Check{
 				Items:  unpackaged,
 				Fix:    "Confirm each one is expected and cannot be made to run other code; remove the capabilities otherwise (setcap -r <file>)"})
 		}
-		return out, ""
+		return append(out, notListed("FS-006", f.FileCapsMore, "files with capabilities", 200)...), ""
 	},
 }

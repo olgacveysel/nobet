@@ -80,7 +80,7 @@ var suidFiles = Check{
 				Fix:      "Confirm each one is expected (vendor software in /opt often is); remove the SUID bit otherwise",
 			})
 		}
-		return out, ""
+		return append(out, notListed("FS-001", f.SUIDMore, "SUID files", 500)...), ""
 	},
 }
 
@@ -120,7 +120,7 @@ var worldWritable = Check{
 				Fix:      "Remove world write access (chmod o-w), or add the sticky bit (chmod +t) if it is a shared drop directory",
 			})
 		}
-		return out, ""
+		return append(out, notListed("FS-002", f.WritableMore, "world-writable files and directories", 200)...), ""
 	},
 }
 
@@ -185,6 +185,16 @@ var rootWritable = Check{
 				Fix:      fix + "); the accounts named can become root by editing them",
 			})
 		}
+		if n := len(f.RootUnchecked); n > 0 {
+			out = append(out, Finding{
+				CheckID:  "FS-003",
+				Severity: Info,
+				Title:    fmt.Sprintf("%d file(s) root uses were not checked", n),
+				Detail:   summarize(f.RootUnchecked, 5) + ": their paths hold characters nobet does not put into a shell script (spaces, quotes, $)",
+				Items:    f.RootUnchecked,
+				Fix:      "Check who can change them by hand (ls -ld on each and every directory above it), or rename them",
+			})
+		}
 		return out, ""
 	},
 }
@@ -204,4 +214,16 @@ func inUserWritablePlace(p string) bool {
 		}
 	}
 	return false
+}
+
+// notListed is the Info finding for a search that stopped listing at limit:
+// n more were found and not checked, which must not read as a pass.
+func notListed(id string, n int, what string, limit int) []Finding {
+	if n <= 0 {
+		return nil
+	}
+	return []Finding{{CheckID: id, Severity: Info,
+		Title:  fmt.Sprintf("%d more %s were found and not checked", n, what),
+		Detail: fmt.Sprintf("the search lists the first %d; this many usually means a copy of a system tree (a chroot, a container's files) in a searched directory", limit),
+		Fix:    "Find where they are (find / -xdev ...) and move such trees out of /home, /opt, /srv or /tmp, or check them by hand"}}
 }

@@ -69,9 +69,9 @@ func TestCollectSudo(t *testing.T) {
 		"id -u":          {Stdout: "1000\n"},
 		"sudo -n true":   {},
 		sshdScript:       {}, // sshd not installed: no output, exit 0
-		sudoersScript:    {Stdout: "/etc/sudoers: root ALL=(ALL:ALL) ALL\n"},
-		authKeysScript:   {},
-		sudoRightsScript: {},
+		sudoersScript:    {Stdout: "/etc/sudoers: root ALL=(ALL:ALL) ALL\n@@end\n"},
+		authKeysScript:   {Stdout: "@@end\n"},
+		sudoRightsScript: {Stdout: "@@user root\n"}, // cut off: no @@end
 	})
 	f := Collect(r)
 	if !f.SudoOK || !f.Privileged() {
@@ -79,6 +79,9 @@ func TestCollectSudo(t *testing.T) {
 	}
 	if !f.NoSSHD() {
 		t.Errorf("empty sshd output should mean no sshd, got %+v (err %q)", f.SSHD, f.Errors["sshd"])
+	}
+	if f.SudoRights != nil || f.Errors["sudo-rights"] != "the listing stopped early" {
+		t.Errorf("a listing without @@end must stay nil: %+v, %q", f.SudoRights, f.Errors["sudo-rights"])
 	}
 	if len(f.Sudoers) != 1 || f.AuthKeys == nil || len(f.AuthKeys) != 0 {
 		t.Errorf("sudoers %+v, authkeys %+v", f.Sudoers, f.AuthKeys)

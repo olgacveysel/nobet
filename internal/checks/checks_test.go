@@ -430,3 +430,18 @@ func TestSUIDEscapeNames(t *testing.T) {
 		t.Errorf("SUID vim.basic: %+v", got)
 	}
 }
+
+// A capped search or a skipped path says so instead of reading as a pass.
+func TestNotListed(t *testing.T) {
+	got, _ := suidFiles.Run(&collect.Facts{SUID: []collect.SUIDFile{}, SUIDMore: 1200})
+	if len(got) != 1 || got[0].Severity != Info || got[0].Title != "1200 more SUID files were found and not checked" {
+		t.Errorf("FS-001: %+v", got)
+	}
+	if got, _ := suidFiles.Run(&collect.Facts{SUID: []collect.SUIDFile{}}); len(got) != 0 {
+		t.Errorf("FS-001 without overflow: %+v", got)
+	}
+	got, _ = rootWritable.Run(&collect.Facts{RootWritable: []collect.WritablePath{}, RootUnchecked: []string{"/opt/my app/run.sh"}})
+	if len(got) != 1 || got[0].Severity != Info || !strings.Contains(got[0].Detail, "/opt/my app/run.sh") {
+		t.Errorf("FS-003: %+v", got)
+	}
+}

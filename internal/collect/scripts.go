@@ -52,7 +52,7 @@ true
 const sudoersScript = `for f in /etc/sudoers /etc/sudoers.d/*; do
   [ -f "$f" ] && sed "s|^|$f: |" "$f"
 done
-true
+echo "@@end"
 `
 
 // Lists listening sockets with ss. Without ss, or with one too old for -H,
@@ -209,7 +209,7 @@ while IFS=: read -r name _ uid _ _ home _; do
     awk -v u="$name" -v f="$f" '!/^[[:space:]]*(#|$)/ {print u "\t" f "\t" $0}' "$f"
   done
 done < /etc/passwd
-true
+echo "@@end"
 `
 
 // Prints "user state expired" for every account in /etc/shadow, where
@@ -237,7 +237,7 @@ awk -F: -v today="$today" '{
     else a = "des"
   }
   print $1, s, e, a
-}' /etc/shadow
+}' /etc/shadow && echo "@@end"
 `
 
 // Asks sudo itself what each account may run, those without a login shell
@@ -246,12 +246,12 @@ awk -F: -v today="$today" '{
 // "NOPASSWD: /usr/bin/find" gave root). This follows
 // aliases, includes and LDAP rules that a sudoers parser would miss.
 const sudoRightsScript = `PATH=$PATH:/usr/sbin:/sbin
-command -v sudo >/dev/null 2>&1 || exit 0
+command -v sudo >/dev/null 2>&1 || { echo "@@end"; exit 0; }
 awk -F: '{print $1}' /etc/passwd | while read -r u; do
   echo "@@user $u"
   LC_ALL=C sudo -n -l -U "$u" 2>/dev/null
 done
-true
+echo "@@end"
 `
 
 // Reports firewall state from ufw, firewalld, nftables and iptables. The
@@ -284,14 +284,24 @@ true
 // the /bin <-> /usr/bin twin path is tried too. /var is skipped except
 // /var/tmp, because container storage under /var/lib holds countless
 // copies of SUID binaries.
-const filesScript = ownedFn + scanDirs + `find $dirs -xdev -type f -perm -4000 2>/dev/null | head -n 500 | while read -r f; do
+const filesScript = ownedFn + scanDirs + uptoFn + `find $dirs -xdev -type f -perm -4000 2>/dev/null | upto 500 | while read -r f; do
+  case $f in "@@more "*) echo "suidmore=${f#@@more }"; continue ;; esac
   owned "$f"; case $? in 0) o=pkg ;; 1) o=none ;; *) o=unknown ;; esac
   echo "suid=$o $f"
 done
-find /etc /bin /sbin /usr /opt -xdev \( -type f -perm -0002 \) -o \( -type d -perm -0002 ! -perm -1000 \) 2>/dev/null | head -n 200 | while read -r f; do
+find /etc /bin /sbin /usr /opt -xdev \( -type f -perm -0002 \) -o \( -type d -perm -0002 ! -perm -1000 \) 2>/dev/null | upto 200 | while read -r f; do
+  case $f in "@@more "*) echo "wwmore=${f#@@more }"; continue ;; esac
   if [ -d "$f" ]; then echo "ww=d $f"; else echo "ww=f $f"; fi
 done
-true
+echo "@@end"
+`
+
+// uptoFn defines upto N, which passes on the first N lines of its input
+// and then, if there were more, "@@more COUNT": a capped list says so
+// instead of looking complete.
+const uptoFn = `upto() {
+  awk -v m="$1" 'NR <= m { print; next } END { if (NR > m) print "@@more " NR - m }'
+}
 `
 
 // scanDirs sets $dirs to the directories SUID files and file capabilities
@@ -312,11 +322,12 @@ done
 // and plain getcap shows it like any other. Without getcap nothing is
 // listed (nogetcap): busybox has none, and Debian, Ubuntu, Alpine and
 // openSUSE containers do not install it.
-const fileCapsScript = ownedFn + scanDirs + `PATH=$PATH:/usr/sbin:/sbin
+const fileCapsScript = ownedFn + scanDirs + uptoFn + `PATH=$PATH:/usr/sbin:/sbin
 command -v getcap >/dev/null 2>&1 || { echo "nogetcap"; exit 0; }
 n=""
 getcap -n / >/dev/null 2>&1 && n=-n
-find $dirs -xdev -type f -exec getcap $n {} + 2>/dev/null | head -n 200 | awk '
+find $dirs -xdev -type f -exec getcap $n {} + 2>/dev/null | upto 200 | awk '
+$1 == "@@more" { print "more|" $2 "|"; next }
 {
   r = 0; k = NF
   if ($NF ~ /^\[rootid=[0-9]+\]$/) { r = $NF; gsub(/[^0-9]/, "", r); k = NF - 1 }
@@ -327,6 +338,7 @@ find $dirs -xdev -type f -exec getcap $n {} + 2>/dev/null | head -n 200 | awk '
   for (i = NF; i > k; i--) sub(/ +[^ ]+$/, "", p)
   print r "|" c "|" p
 }' | while IFS='|' read -r r c p; do
+  [ "$r" = more ] && { echo "capsmore=$c"; continue; }
   owned "$p"; case $? in 0) o=pkg ;; 1) o=none ;; *) o=unknown ;; esac
   echo "cap=$o|$r|$c|$p"
 done

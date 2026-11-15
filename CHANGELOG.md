@@ -25,6 +25,10 @@
   - The check covers every item, including those the detail shortens to "and N more". Several rules can cover one finding together; it is listed with all of them, their reasons, and the earliest `until=`.
   - Findings carry the list as `items` in JSON output.
 - The scan history is kept per host and by age, not as the newest 100 files. Each host keeps its newest 100 scans (`-keep`), so rescanning one host over and over from the dashboard no longer pushes the rest of the fleet's history out. Scans older than a year are deleted (`-max-age`, `0` keeps them). Files nobet cannot read are deleted only by age.
+- Capped searches and skipped paths now say so instead of looking complete:
+  - FS-001, FS-002 and FS-006 list the first 500 SUID files, 200 world-writable entries and 200 files with capabilities. An Info finding now says how many more were found and not checked. In the lab, 600 SUID copies in a chroot under /opt gave "108 more SUID files were found and not checked".
+  - FS-003 reports the files root uses whose paths it leaves out (spaces, quotes or `$`, which nobet does not put into a shell script), where it used to drop them in silence.
+- The sudoers, shadow, file permission, authorized keys and sudo rights collectors now end with a marker. A listing cut short counts as not collected (the check is skipped with "the listing stopped early") instead of passing on part of the data. Stock Debian 13, AlmaLinux 9 and Alpine scans give the same findings as before.
 
 ## v0.7.0 — 2026-11-11
 

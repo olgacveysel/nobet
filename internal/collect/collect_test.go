@@ -1,7 +1,9 @@
 package collect
 
 import (
+	"os/exec"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -244,7 +246,10 @@ table inet filter {
 }
 
 func TestParseFiles(t *testing.T) {
-	suid, ww := parseFiles("suid=pkg /usr/bin/sudo\nsuid=none /opt/tool/bin/helper\nww=d /opt/shared\nww=f /etc/cron.d/job\n")
+	suid, ww, suidMore, wwMore := parseFiles("suid=pkg /usr/bin/sudo\nsuid=none /opt/tool/bin/helper\nww=d /opt/shared\nww=f /etc/cron.d/job\nsuidmore=12\n")
+	if suidMore != 12 || wwMore != 0 {
+		t.Errorf("more: %d %d", suidMore, wwMore)
+	}
 	if len(suid) != 2 || suid[1] != (SUIDFile{Path: "/opt/tool/bin/helper", Owner: "none"}) {
 		t.Errorf("suid: %+v", suid)
 	}
@@ -260,5 +265,32 @@ func TestLinesLong(t *testing.T) {
 	got := lines("first\r\n" + long + "\n\n  last  \n")
 	if len(got) != 3 || got[0] != "first" || len(got[1]) != len(long) || got[2] != "last" {
 		t.Errorf("got %d lines", len(got))
+	}
+}
+
+func TestComplete(t *testing.T) {
+	for in, want := range map[string]bool{
+		"a\nb\n@@end\n": true, "@@end": true, "a\r\n@@end\r\n": true,
+		"a\nb\n": false, "": false, "a\n@@end\nb\n": false, "x@@end\n": false,
+	} {
+		body, ok := complete(in)
+		if ok != want || ok && strings.Contains(body, "@@end") {
+			t.Errorf("complete(%q) = %q, %v", in, body, ok)
+		}
+	}
+}
+
+// upto passes the first N lines and says how many more there were, under
+// busybox, mawk and gawk.
+func TestUptoScript(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("needs /bin/sh")
+	}
+	out, err := exec.Command("/bin/sh", "-c", uptoFn+"seq 1 7 | upto 5; seq 1 3 | upto 5").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := string(out); got != "1\n2\n3\n4\n5\n@@more 2\n1\n2\n3\n" {
+		t.Errorf("got %q", got)
 	}
 }

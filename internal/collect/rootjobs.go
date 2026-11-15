@@ -555,20 +555,33 @@ var safePath = regexp.MustCompile(`^/[A-Za-z0-9._+,:@%~=/-]*$`)
 // rootPaths lists the distinct shell-safe paths of jobs, at most
 // maxRootPaths, and whether some had to be left out.
 func rootPaths(jobs []RootJob) (paths []string, truncated bool) {
+	paths, _, truncated = rootPathsSplit(jobs)
+	return paths, truncated
+}
+
+// rootPathsSplit is rootPaths that also returns the paths it leaves out
+// because they hold characters nobet does not put into a shell script
+// (spaces, quotes, $): they are not checked, and FS-003 says so.
+func rootPathsSplit(jobs []RootJob) (paths, unsafe []string, truncated bool) {
 	seen := map[string]bool{}
 	for _, j := range jobs {
 		for _, p := range j.Paths {
-			if seen[p] || !safePath.MatchString(p) {
+			if seen[p] {
+				continue
+			}
+			if !safePath.MatchString(p) {
+				seen[p] = true
+				unsafe = append(unsafe, p)
 				continue
 			}
 			if len(paths) == maxRootPaths {
-				return paths, true
+				return paths, unsafe, true
 			}
 			seen[p] = true
 			paths = append(paths, p)
 		}
 	}
-	return paths, false
+	return paths, unsafe, false
 }
 
 // pathsScript prints, for every path and each directory above it, and for
