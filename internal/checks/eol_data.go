@@ -3,7 +3,7 @@
 package checks
 
 // eolUpdated is when the support dates were fetched.
-const eolUpdated = "2026-11-11"
+const eolUpdated = "2026-11-15"
 
 var eolData = map[string]eolProduct{
 	"almalinux": {Extended: "", Releases: []eolRelease{

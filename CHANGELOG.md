@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.8.0 — 2026-11-15
 
 - ACC-004 and the root access map now count limited sudo rules whose environment lets the caller load code of their own as root:
   - the `SETENV` tag or `Defaults setenv`, through `sudo LD_PRELOAD=... cmd`

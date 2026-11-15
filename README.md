@@ -11,7 +11,7 @@
 
 *Nöbet* is Turkish for a watch or guard shift.
 
-> Status: early development (v0.7).
+> Status: early development (v0.8).
 
 ## Principles
 
