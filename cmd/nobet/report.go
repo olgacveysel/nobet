@@ -50,12 +50,12 @@ func runReport(args []string) int {
 	dir, err := historyDir(*histDir)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "nobet:", err)
-		return exitUsage
+		return exitError
 	}
 	recent, hosts, err := store.Recent(dir, 1)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "nobet: reading scan history:", err)
-		return exitUsage
+		return exitError
 	}
 	var results []scan.HostResult
 	for _, h := range hosts {
@@ -94,7 +94,7 @@ func runReport(args []string) int {
 		}
 		if err := out.write(out.path); err != nil {
 			fmt.Fprintf(os.Stderr, "nobet: writing the %s report: %v\n", out.name, err)
-			return exitUsage
+			return exitError
 		}
 		fmt.Printf("%s report of %d host(s) written to %s\n", out.name, len(results), out.path)
 	}

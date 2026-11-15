@@ -111,6 +111,10 @@ func (s *testServer) serve(c net.Conn, cfg *ssh.ServerConfig, forward bool) {
 				OPort uint32
 			}
 			ssh.Unmarshal(nc.ExtraData(), &to)
+			if to.Port == 9 { // a target behind a firewall that drops packets: no answer
+				go func() { time.Sleep(10 * time.Second); nc.Reject(ssh.ConnectionFailed, "timeout") }()
+				continue
+			}
 			dst, err := net.Dial("tcp", net.JoinHostPort(to.Host, itoa(to.Port)))
 			if err != nil {
 				nc.Reject(ssh.ConnectionFailed, err.Error())
@@ -144,6 +148,13 @@ func (s *testServer) session(ch ssh.Channel, reqs <-chan *ssh.Request) {
 		ssh.Unmarshal(r.Payload, &p)
 		status := uint32(0)
 		switch {
+		case p.Cmd == "flood": // output without end, until the client hangs up
+			chunk := []byte(strings.Repeat("x", 32<<10))
+			for i := 0; i < 4096; i++ {
+				if _, err := ch.Write(chunk); err != nil {
+					return
+				}
+			}
 		case p.Cmd == "sleep":
 			time.Sleep(5 * time.Second)
 		case strings.HasPrefix(p.Cmd, "exit "):
@@ -347,5 +358,41 @@ func TestSSHHandshakeTimeout(t *testing.T) {
 	_, err = DialSSH(SSHTarget{Addr: ln.Addr().String(), User: "scan"}, o)
 	if err == nil || time.Since(start) > 3*time.Second {
 		t.Errorf("silent server: %v after %s", err, time.Since(start))
+	}
+}
+
+// A host that prints without end is stopped at the cap, and the
+// connection stays usable.
+func TestSSHOutputCap(t *testing.T) {
+	old := maxOutput
+	maxOutput = 1 << 20
+	defer func() { maxOutput = old }()
+	r := newRig(t)
+	srv := startServer(t, []ssh.Signer{r.hostKey}, r.pub, false)
+	c, err := DialSSH(SSHTarget{Addr: srv.addr, User: "scan"}, r.opts(knownHosts(t, map[string][]ssh.PublicKey{srv.addr: {r.hostKey.PublicKey()}})))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	if _, err := c.Run("flood"); err == nil || !strings.Contains(err.Error(), "more than 1 MB") {
+		t.Errorf("flood: %v", err)
+	}
+	if res, err := c.Run("id"); err != nil || res.Stdout != "ran: id\n" {
+		t.Errorf("after the flood: %+v, %v", res, err)
+	}
+}
+
+// A jump host that never gets an answer from the target (a firewall that
+// drops packets) does not hold the scan beyond the timeout.
+func TestSSHJumpDialTimeout(t *testing.T) {
+	r := newRig(t)
+	jumpKey := newSigner(t, "ed25519")
+	jump := startServer(t, []ssh.Signer{jumpKey}, r.pub, true)
+	o := r.opts(knownHosts(t, map[string][]ssh.PublicKey{jump.addr: {jumpKey.PublicKey()}}))
+	o.Timeout = 500 * time.Millisecond
+	start := time.Now()
+	_, err := DialSSH(SSHTarget{Addr: "10.0.0.1:9", User: "scan", Jump: &SSHTarget{Addr: jump.addr, User: "hop"}}, o)
+	if err == nil || !strings.Contains(err.Error(), "timed out") || time.Since(start) > 3*time.Second {
+		t.Errorf("silent target behind the jump host: %v after %s", err, time.Since(start))
 	}
 }

@@ -125,7 +125,7 @@ func (s *Server) Handler() http.Handler {
 	if s.auth != nil {
 		mux.HandleFunc("GET /auth/login", s.handleLogin)
 		mux.HandleFunc("GET /auth/callback", s.handleCallback)
-		mux.HandleFunc("GET /auth/logout", s.handleLogout)
+		mux.HandleFunc("POST /auth/logout", s.handleLogout) // a POST, so no link elsewhere can sign anyone out
 	}
 	assets := http.StripPrefix("/static/", http.FileServerFS(static))
 	mux.HandleFunc("GET /static/{file}", func(w http.ResponseWriter, r *http.Request) {
@@ -136,7 +136,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /favicon.ico", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/static/favicon.svg", http.StatusMovedPermanently)
 	})
-	// The only unsafe method is POST /scan: refuse it from other sites
+	// The unsafe methods are POST /scan and POST /auth/logout: refuse them from other sites
 	// (Sec-Fetch-Site and Origin checks), so no page elsewhere can make a
 	// signed-in browser ask for scans.
 	return s.secure(s.logged(s.authorized(s.audited(http.NewCrossOriginProtection().Handler(mux)))))
@@ -471,6 +471,12 @@ func (s *Server) secure(next http.Handler) http.Handler {
 		h.Set("X-Frame-Options", "DENY")
 		h.Set("Referrer-Policy", "no-referrer")
 		h.Set("Cache-Control", "no-store")
+		// Over HTTPS (served here, or behind a proxy at an https public
+		// URL), browsers should never come back over plain HTTP. Not for
+		// subdomains: that is not this server's call.
+		if r.TLS != nil || s.auth != nil && s.auth.secure {
+			h.Set("Strict-Transport-Security", "max-age=31536000")
+		}
 		next.ServeHTTP(w, r)
 	})
 }

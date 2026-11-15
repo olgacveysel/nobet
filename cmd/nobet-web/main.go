@@ -45,7 +45,7 @@ func run(args []string) int {
 	userHeader := fs.String("user-header", "", "request header in which your proxy passes the signed-in user (e.g. X-Forwarded-User), to log who viewed what")
 	keysFile := fs.String("keys", "", "file naming who each SSH key belongs to (as for nobet rootmap -keys), shown on the root access page")
 	metrics := fs.Bool("metrics", false, "also serve /metrics in the Prometheus text format (findings per host and severity, scan times, root keys)")
-	metricsListen := fs.String("metrics-listen", "", "serve /metrics on this separate address instead (for example 127.0.0.1:9187), which needs no sign-in")
+	metricsListen := fs.String("metrics-listen", "", "serve /metrics on this separate address instead (for example 127.0.0.1:9187), which needs no sign-in; implies -metrics")
 	auditLog := fs.String("audit-log", "", "append every page view and sign-in, with the user, to this file as JSON lines")
 	scanQueue := fs.String("scan-queue", "", "let users ask for scans: requests go to this directory, where `nobet scan -queue` (run as the scanner account) picks them up; nobet-web itself never scans")
 	scanUsers := fs.String("scan-users", "", "who may ask for scans, comma-separated (default: everyone who can view)")
@@ -63,7 +63,13 @@ func run(args []string) int {
 			"Usage:\n  nobet-web [flags]\n\nFlags:\n")
 		fs.PrintDefaults()
 	}
-	if err := fs.Parse(args); err != nil {
+	err := fs.Parse(args)
+	// Naming an address for metrics asks for them: without this,
+	// -metrics-listen alone served nothing, without a word.
+	if *metricsListen != "" {
+		*metrics = true
+	}
+	if err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return 0
 		}

@@ -76,12 +76,12 @@ func runScan(args []string) int {
 	if *queueDir != "" {
 		if err := queue.Recover(*queueDir, time.Hour, time.Now()); err != nil {
 			fmt.Fprintln(os.Stderr, "nobet: scan queue:", err)
-			return exitUsage
+			return exitError
 		}
 		var err error
 		if claimed, err = queue.Claim(*queueDir); err != nil {
 			fmt.Fprintln(os.Stderr, "nobet: scan queue:", err)
-			return exitUsage
+			return exitError
 		}
 		if len(claimed) == 0 {
 			return exitOK // nothing asked for
@@ -144,7 +144,7 @@ func runScan(args []string) int {
 		})
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "nobet: TUI failed:", err)
-			return exitUsage
+			return exitError
 		}
 		report.Summary(os.Stdout, results)
 		if n := len(names) - len(results); n > 0 {
@@ -158,7 +158,7 @@ func runScan(args []string) int {
 		if *jsonOut {
 			if err := report.JSON(os.Stdout, results); err != nil {
 				fmt.Fprintln(os.Stderr, "nobet:", err)
-				return exitUsage
+				return exitError
 			}
 		} else {
 			report.Text(os.Stdout, results)

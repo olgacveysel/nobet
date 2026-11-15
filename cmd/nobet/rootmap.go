@@ -74,7 +74,7 @@ func runRootmap(args []string) int {
 		enc.SetIndent("", "  ")
 		if err := enc.Encode(m); err != nil {
 			fmt.Fprintln(os.Stderr, "nobet:", err)
-			return exitUsage
+			return exitError
 		}
 	} else {
 		m.WriteText(os.Stdout)

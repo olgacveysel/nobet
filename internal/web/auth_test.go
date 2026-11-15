@@ -110,7 +110,17 @@ type browser struct {
 
 func (b *browser) get(target string) *httptest.ResponseRecorder {
 	b.t.Helper()
-	req := httptest.NewRequest("GET", target, nil)
+	return b.do("GET", target, "")
+}
+
+// do sends a request; site is the Sec-Fetch-Site a browser would send
+// ("same-origin", "cross-site"), or "" for none.
+func (b *browser) do(method, target, site string) *httptest.ResponseRecorder {
+	b.t.Helper()
+	req := httptest.NewRequest(method, target, nil)
+	if site != "" {
+		req.Header.Set("Sec-Fetch-Site", site)
+	}
 	for _, c := range b.cookies {
 		req.AddCookie(c)
 	}
@@ -171,15 +181,27 @@ func TestSignIn(t *testing.T) {
 		t.Error("the login cookie should be cleared after the callback")
 	}
 	page := b.get("/root")
-	if page.Code != 200 || !strings.Contains(page.Body.String(), `<span class="who">alice@example.com</span>`) || !strings.Contains(page.Body.String(), `href="/auth/logout"`) {
+	if page.Code != 200 || !strings.Contains(page.Body.String(), `<span class="who">alice@example.com</span>`) || !strings.Contains(page.Body.String(), `method="post" action="/auth/logout"`) {
 		t.Errorf("signed-in page: %d", page.Code)
+	}
+	// Served for an https public URL: browsers are told to stay on HTTPS.
+	if h := page.Header().Get("Strict-Transport-Security"); h != "max-age=31536000" {
+		t.Errorf("HSTS %q", h)
 	}
 	// The callback cannot be replayed: the login cookie is gone.
 	if rec := b.get("/auth/callback?code=x&state=y"); rec.Code != http.StatusBadRequest {
 		t.Errorf("replayed callback: %d", rec.Code)
 	}
 
-	if rec := b.get("/auth/logout"); rec.Code != 200 || b.cookies["__Host-nobet_session"] != nil {
+	// Signing out takes a POST from the dashboard itself: a link or a form
+	// on another site cannot sign anyone out.
+	if rec := b.get("/auth/logout"); rec.Code != http.StatusMethodNotAllowed || b.cookies["__Host-nobet_session"] == nil {
+		t.Errorf("GET logout: %d", rec.Code)
+	}
+	if rec := b.do("POST", "/auth/logout", "cross-site"); rec.Code != http.StatusForbidden || b.cookies["__Host-nobet_session"] == nil {
+		t.Errorf("cross-site logout: %d", rec.Code)
+	}
+	if rec := b.do("POST", "/auth/logout", "same-origin"); rec.Code != 200 || b.cookies["__Host-nobet_session"] != nil {
 		t.Errorf("logout: %d, cookie %v", rec.Code, b.cookies["__Host-nobet_session"])
 	}
 	if rec := b.get("/"); rec.Code != http.StatusFound {
@@ -263,16 +285,23 @@ func TestSignInRejectsTampering(t *testing.T) {
 	p.nonce = ""
 
 	// A forged or expired session cookie.
-	forged := &http.Cookie{Name: "__Host-nobet_session", Value: s.auth.sign(session{User: "x", Expires: now.Add(time.Hour).Unix()})}
+	forged := &http.Cookie{Name: "__Host-nobet_session", Value: s.auth.sign("nobet_session", session{User: "x", Expires: now.Add(time.Hour).Unix()})}
 	forged.Value = forged.Value[:len(forged.Value)-2] + "AA"
 	b.cookies = map[string]*http.Cookie{forged.Name: forged}
 	if rec := b.get("/"); rec.Code != http.StatusFound {
 		t.Errorf("forged cookie: %d", rec.Code)
 	}
-	expired := &http.Cookie{Name: "__Host-nobet_session", Value: s.auth.sign(session{User: "x", Expires: now.Unix()})}
+	expired := &http.Cookie{Name: "__Host-nobet_session", Value: s.auth.sign("nobet_session", session{User: "x", Expires: now.Unix()})}
 	b.cookies = map[string]*http.Cookie{expired.Name: expired}
 	if rec := b.get("/"); rec.Code != http.StatusFound {
 		t.Errorf("expired cookie: %d", rec.Code)
+	}
+	// A value signed for the login cookie does not pass as a session, even
+	// with a session's fields: the cookie's name is in the MAC.
+	other := &http.Cookie{Name: "__Host-nobet_session", Value: s.auth.sign("nobet_login", session{User: "x", Expires: now.Add(time.Hour).Unix()})}
+	b.cookies = map[string]*http.Cookie{other.Name: other}
+	if rec := b.get("/"); rec.Code != http.StatusFound {
+		t.Errorf("a login cookie's value as a session: %d", rec.Code)
 	}
 
 	// Public paths need no session.

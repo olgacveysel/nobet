@@ -43,7 +43,7 @@ func runDiff(args []string) int {
 	dir, err := historyDir(*histDir)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "nobet:", err)
-		return exitUsage
+		return exitError
 	}
 	var all []drift.HostDrift
 	var once, never []string
@@ -62,7 +62,7 @@ func runDiff(args []string) int {
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "nobet:", err)
-		return exitUsage
+		return exitError
 	}
 	var drifts []drift.HostDrift
 	for _, d := range all {
@@ -88,7 +88,7 @@ func runDiff(args []string) int {
 		}
 		if err := enc.Encode(drifts); err != nil {
 			fmt.Fprintln(os.Stderr, "nobet:", err)
-			return exitUsage
+			return exitError
 		}
 	} else {
 		if len(all)+len(once)+len(never) == 0 {

@@ -375,8 +375,9 @@ UPD-004 knows Ubuntu, Debian (including its free LTS period) and Raspbian, RHEL,
 |------|---------|
 | 0 | No findings at or above `-fail-on` |
 | 1 | At least one finding at or above `-fail-on` (default: high) |
-| 2 | Usage error |
+| 2 | Usage error: a bad flag, or an allowlist or keys file nobet cannot read |
 | 3 | No failing findings, but some hosts could not be scanned |
+| 4 | nobet could not finish: the scan history could not be read or written, output could not be written, or the scan queue failed |
 
 ## Known limitations
 

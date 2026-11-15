@@ -21,6 +21,7 @@ const (
 	exitFindings    = 1 // at least one finding at or above -fail-on
 	exitUsage       = 2
 	exitUnreachable = 3 // no failing findings, but some hosts could not be scanned
+	exitError       = 4 // nobet could not finish: reading or writing the history, writing output, the queue
 )
 
 const usage = `Usage:

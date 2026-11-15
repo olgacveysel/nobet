@@ -32,7 +32,7 @@ func runChecks(args []string) int {
 	}
 	if err := writeChecks(os.Stdout, *jsonOut); err != nil {
 		fmt.Fprintln(os.Stderr, "nobet:", err)
-		return exitUsage
+		return exitError
 	}
 	return exitOK
 }

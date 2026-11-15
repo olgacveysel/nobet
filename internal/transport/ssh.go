@@ -125,7 +125,7 @@ func (s *SSH) dial(t SSHTarget, hostKeys ssh.HostKeyCallback, agentSigners func(
 			return nil, fmt.Errorf("jump host %s: %w", t.Jump.Addr, err)
 		}
 		s.jumps = append(s.jumps, jump)
-		conn, err = jump.Dial("tcp", t.Addr)
+		conn, err = dialThrough(jump, t.Addr, opts.Timeout)
 		if err != nil {
 			return nil, fmt.Errorf("connecting to %s through %s: %w", t.Addr, t.Jump.Addr, err)
 		}
@@ -148,6 +148,36 @@ func (s *SSH) dial(t SSHTarget, hostKeys ssh.HostKeyCallback, agentSigners func(
 		return nil, err
 	}
 	return client, nil
+}
+
+// dialThrough opens a connection to addr through a jump host, giving up
+// after timeout: the jump host forwards the TCP connect, and a target that
+// never answers would otherwise hold the scan (the handshake timeout only
+// starts once the channel is open).
+func dialThrough(jump *ssh.Client, addr string, timeout time.Duration) (net.Conn, error) {
+	if timeout <= 0 {
+		return jump.Dial("tcp", addr)
+	}
+	type result struct {
+		c   net.Conn
+		err error
+	}
+	done := make(chan result, 1)
+	go func() {
+		c, err := jump.Dial("tcp", addr)
+		done <- result{c, err}
+	}()
+	select {
+	case r := <-done:
+		return r.c, r.err
+	case <-time.After(timeout):
+		go func() { // close it if it opens after all
+			if r := <-done; r.c != nil {
+				r.c.Close()
+			}
+		}()
+		return nil, fmt.Errorf("timed out after %s", timeout)
+	}
 }
 
 // handshake runs the SSH handshake over conn, giving up after timeout.
@@ -191,8 +221,11 @@ func (c *SSH) Run(cmd string) (runner.Result, error) {
 	}
 	defer sess.Close()
 
-	var stdout, stderr bytes.Buffer
-	sess.Stdout, sess.Stderr = &stdout, &stderr
+	// A host could send output without end; past the cap the session is
+	// closed and the command fails, instead of nobet's memory filling up.
+	stdout := &capped{max: maxOutput, onFull: func() { sess.Close() }}
+	stderr := &capped{max: maxOutput / 64}
+	sess.Stdout, sess.Stderr = stdout, stderr
 
 	done := make(chan error, 1)
 	go func() { done <- sess.Run(cmd) }()
@@ -209,6 +242,9 @@ func (c *SSH) Run(cmd string) (runner.Result, error) {
 		runErr = <-done
 	}
 
+	if stdout.full {
+		return runner.Result{}, fmt.Errorf("the command printed more than %d MB; output from a host is never that large, so it was stopped", maxOutput>>20)
+	}
 	res := runner.Result{Stdout: stdout.String(), Stderr: stderr.String()}
 	if runErr != nil {
 		var exitErr *ssh.ExitError
@@ -219,6 +255,40 @@ func (c *SSH) Run(cmd string) (runner.Result, error) {
 		return res, runErr
 	}
 	return res, nil
+}
+
+// maxOutput caps one command's stdout. The largest collector output seen
+// is a few MB (permission listings on a big host); a variable for tests.
+var maxOutput = 64 << 20
+
+// capped is a buffer that keeps at most max bytes and calls onFull once
+// when more arrive. It never fails a write, so the session drains cleanly.
+// The buffer is a field, not embedded: an embedded bytes.Buffer brings its
+// ReadFrom, which io.Copy (the session's copier) would use instead of
+// Write, past the cap.
+type capped struct {
+	buf    bytes.Buffer
+	max    int
+	full   bool
+	onFull func()
+}
+
+func (c *capped) String() string { return c.buf.String() }
+
+func (c *capped) Write(p []byte) (int, error) {
+	if room := c.max - c.buf.Len(); len(p) > room {
+		if room > 0 {
+			c.buf.Write(p[:room])
+		}
+		if !c.full {
+			c.full = true
+			if c.onFull != nil {
+				go c.onFull()
+			}
+		}
+		return len(p), nil
+	}
+	return c.buf.Write(p)
 }
 
 // Close closes the connection, its jump hosts and any agent socket.

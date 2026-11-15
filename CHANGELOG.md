@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- SSH: a command's output is capped at 64 MB. A host that printed without end could fill nobet's memory and end the whole scan; now that command fails and the connection stays usable. Connecting through a jump host now times out (`-timeout`) when the target never answers, as a firewall that drops packets makes it, instead of waiting without end.
+- nobet-web:
+  - Sign out is a POST from the dashboard, so a link on another site can no longer sign anyone out.
+  - Over HTTPS, pages send `Strict-Transport-Security`.
+  - The session and sign-in cookies are signed for their purpose, so one can never pass as the other. Existing sessions end once, after the upgrade.
+  - `-metrics-listen` now turns on `-metrics`; alone, it used to serve nothing without a word.
+- New exit code 4: nobet could not finish (the scan history could not be read or written, output could not be written, the scan queue failed). These used to exit 2, as for a bad flag. The Docker scan loop retries on 4 and stops on 2 as before.
+- `.dockerignore` keeps package files (`.deb`, `.rpm`, `.apk`) out of the image build context.
+
 ## v0.8.0 — 2026-11-15
 
 - ACC-004 and the root access map now count limited sudo rules whose environment lets the caller load code of their own as root:

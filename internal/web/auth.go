@@ -129,7 +129,7 @@ func (a *auth) cookieName(base string) string {
 
 func (a *auth) setCookie(w http.ResponseWriter, base string, v any, ttl time.Duration) {
 	http.SetCookie(w, &http.Cookie{
-		Name: a.cookieName(base), Value: a.sign(v), Path: "/", MaxAge: int(ttl.Seconds()),
+		Name: a.cookieName(base), Value: a.sign(base, v), Path: "/", MaxAge: int(ttl.Seconds()),
 		HttpOnly: true, Secure: a.secure, SameSite: http.SameSiteLaxMode,
 	})
 }
@@ -141,16 +141,18 @@ func (a *auth) clearCookie(w http.ResponseWriter, base string) {
 	})
 }
 
-// sign encodes v and appends an HMAC over it.
-func (a *auth) sign(v any) string {
+// sign encodes v and appends an HMAC over it and the cookie's name: a
+// value signed for one cookie (the short-lived login state) never passes
+// as another (the session), whatever their fields.
+func (a *auth) sign(base string, v any) string {
 	data, _ := json.Marshal(v)
 	payload := base64.RawURLEncoding.EncodeToString(data)
-	return payload + "." + base64.RawURLEncoding.EncodeToString(a.mac(payload))
+	return payload + "." + base64.RawURLEncoding.EncodeToString(a.mac(base, payload))
 }
 
-func (a *auth) mac(payload string) []byte {
+func (a *auth) mac(base, payload string) []byte {
 	m := hmac.New(sha256.New, a.cfg.SessionKey)
-	m.Write([]byte(payload))
+	m.Write([]byte(base + "\x00" + payload))
 	return m.Sum(nil)
 }
 
@@ -165,7 +167,7 @@ func (a *auth) read(r *http.Request, base string, v any) bool {
 		return false
 	}
 	got, err := base64.RawURLEncoding.DecodeString(sig)
-	if err != nil || !hmac.Equal(got, a.mac(payload)) {
+	if err != nil || !hmac.Equal(got, a.mac(base, payload)) {
 		return false
 	}
 	data, err := base64.RawURLEncoding.DecodeString(payload)
