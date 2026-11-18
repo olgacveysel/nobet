@@ -407,93 +407,27 @@ func Collect(r runner.Runner) *Facts {
 	// users' keys and sudo rights are only fully readable as root; partial
 	// data would look complete, so skip them entirely otherwise.
 	if !f.Privileged() {
-		for _, name := range []string{"sudoers", "shadow", "firewall", "files", "filecaps", "authkeys", "keylogins", "containers", "dockerd", "polkit", "rhosts", "privkeys", "credentials", "sudo-rights", "root-jobs"} {
-			f.Errors[name] = "needs root or passwordless sudo"
+		for _, c := range rootCollectors {
+			f.Errors[c.name] = "needs root or passwordless sudo"
 		}
+		f.Errors["root-jobs"] = "needs root or passwordless sudo"
 		return f
 	}
-	// done reads a collector whose output ends with "@@end": without it the
-	// data stays nil (not collected) and the reason is recorded.
-	done := func(name, body string) (string, bool) {
-		out, ok := run(name, script(body, true))
+	for _, c := range rootCollectors {
+		out, ok := run(c.name, script(c.body, true))
 		if !ok {
-			return "", false
+			continue
 		}
-		if out, ok = complete(out); !ok {
-			f.Errors[name] = "the listing stopped early"
+		if c.marked {
+			// Without its "@@end" the data stays nil (not collected).
+			if out, ok = complete(out); !ok {
+				f.Errors[c.name] = "the listing stopped early"
+				continue
+			}
 		}
-		return out, ok
-	}
-	if out, ok := done("sudoers", sudoersScript); ok {
-		f.Sudoers = parseSudoers(out)
-		if f.Sudoers == nil {
-			f.Sudoers = []SudoLine{}
+		if why := c.parse(f, out); why != "" {
+			f.Errors[c.name] = why
 		}
-	}
-	if out, ok := done("shadow", shadowScript); ok {
-		f.Shadow = parseShadow(out)
-	}
-	if out, ok := run("firewall", script(firewallScript, true)); ok {
-		f.Firewall = parseFirewall(out)
-	}
-	if out, ok := done("files", filesScript); ok {
-		f.SUID, f.Writable, f.SUIDMore, f.WritableMore = parseFiles(out)
-	}
-	if out, ok := run("filecaps", script(fileCapsScript, true)); ok {
-		var e string
-		if f.FileCaps, e = parseFileCaps(out); e != "" {
-			f.Errors["filecaps"] = e
-		}
-		f.FileCapsMore = count(out, "capsmore=")
-	}
-	if out, ok := done("authkeys", authKeysScript); ok {
-		f.AuthKeys = parseAuthKeys(out)
-		if f.AuthKeys == nil {
-			f.AuthKeys = []AuthKey{}
-		}
-	}
-	if out, ok := run("keylogins", script(keyLoginsScript, true)); ok {
-		if f.KeyLogins = parseKeyLogins(out); f.KeyLogins == nil {
-			f.Errors["keylogins"] = "reading sshd's log messages stopped early"
-		}
-	}
-	if out, ok := run("containers", script(containersScript, true)); ok {
-		if cs, sockets, why := parseContainers(out); why != "" {
-			f.Errors["containers"] = why
-		} else {
-			f.Containers, f.ControlSockets = cs, sockets
-		}
-	}
-	if out, ok := run("dockerd", script(dockerAPIScript, true)); ok {
-		var why string
-		if f.DockerAPI, why = parseDockerAPI(out); why != "" {
-			f.Errors["dockerd"] = why
-		}
-	}
-	if out, ok := run("rhosts", script(rhostsScript, true)); ok {
-		if f.HostTrust = parseRhosts(out); f.HostTrust == nil {
-			f.Errors["rhosts"] = "the trust file listing stopped early"
-		}
-	}
-	if out, ok := run("polkit", script(polkitScript, true)); ok {
-		var why string
-		if f.Polkit, why = parsePolkit(out); why != "" {
-			f.Errors["polkit"] = why
-		}
-	}
-	if out, ok := run("privkeys", script(privateKeysScript, true)); ok {
-		if f.PrivateKeys = f.parsePrivateKeys(out); f.PrivateKeys == nil {
-			f.Errors["privkeys"] = "the key file listing stopped early"
-		}
-	}
-	if out, ok := run("credentials", script(credentialsScript, true)); ok {
-		if f.Credentials = f.parseCredentials(out); f.Credentials == nil {
-			f.Errors["credentials"] = "the credential file listing stopped early"
-		}
-	}
-	if out, ok := done("sudo-rights", sudoRightsScript); ok {
-		f.SudoRights, f.SudoDefaults = parseSudoRights(out)
-		f.markEnvEscapes()
 	}
 	f.collectRootPaths(func(name, body string) (string, bool) { return run(name, script(body, true)) })
 	// Again, now that the #! lines of the commands sudo rules name are known.
@@ -518,6 +452,99 @@ func Collect(r runner.Runner) *Facts {
 		}
 	}
 	return f
+}
+
+// collector is a script that only root can run completely, and how its
+// output becomes facts. parse returns why the data is incomplete, or "".
+type collector struct {
+	name   string
+	body   string
+	marked bool // the output ends with "@@end" (see complete)
+	parse  func(f *Facts, out string) string
+}
+
+// rootCollectors run only with root or passwordless sudo: other users'
+// keys, sudo rights, the firewall, permissions across the system. Partial
+// data would look complete, so without privilege each is skipped with its
+// name in Errors. They run in this order; sudo-rights last, as the root
+// paths collected after it need the rights.
+var rootCollectors = []collector{
+	{"sudoers", sudoersScript, true, func(f *Facts, out string) string {
+		if f.Sudoers = parseSudoers(out); f.Sudoers == nil {
+			f.Sudoers = []SudoLine{}
+		}
+		return ""
+	}},
+	{"shadow", shadowScript, true, func(f *Facts, out string) string {
+		f.Shadow = parseShadow(out)
+		return ""
+	}},
+	{"firewall", firewallScript, false, func(f *Facts, out string) string {
+		f.Firewall = parseFirewall(out)
+		return ""
+	}},
+	{"files", filesScript, true, func(f *Facts, out string) string {
+		f.SUID, f.Writable, f.SUIDMore, f.WritableMore = parseFiles(out)
+		return ""
+	}},
+	{"filecaps", fileCapsScript, false, func(f *Facts, out string) string {
+		var why string
+		f.FileCaps, why = parseFileCaps(out)
+		f.FileCapsMore = count(out, "capsmore=")
+		return why
+	}},
+	{"authkeys", authKeysScript, true, func(f *Facts, out string) string {
+		if f.AuthKeys = parseAuthKeys(out); f.AuthKeys == nil {
+			f.AuthKeys = []AuthKey{}
+		}
+		return ""
+	}},
+	{"keylogins", keyLoginsScript, false, func(f *Facts, out string) string {
+		if f.KeyLogins = parseKeyLogins(out); f.KeyLogins == nil {
+			return "reading sshd's log messages stopped early"
+		}
+		return ""
+	}},
+	{"containers", containersScript, false, func(f *Facts, out string) string {
+		cs, sockets, why := parseContainers(out)
+		if why == "" {
+			f.Containers, f.ControlSockets = cs, sockets
+		}
+		return why
+	}},
+	{"dockerd", dockerAPIScript, false, func(f *Facts, out string) string {
+		var why string
+		f.DockerAPI, why = parseDockerAPI(out)
+		return why
+	}},
+	{"rhosts", rhostsScript, false, func(f *Facts, out string) string {
+		if f.HostTrust = parseRhosts(out); f.HostTrust == nil {
+			return "the trust file listing stopped early"
+		}
+		return ""
+	}},
+	{"polkit", polkitScript, false, func(f *Facts, out string) string {
+		var why string
+		f.Polkit, why = parsePolkit(out)
+		return why
+	}},
+	{"privkeys", privateKeysScript, false, func(f *Facts, out string) string {
+		if f.PrivateKeys = f.parsePrivateKeys(out); f.PrivateKeys == nil {
+			return "the key file listing stopped early"
+		}
+		return ""
+	}},
+	{"credentials", credentialsScript, false, func(f *Facts, out string) string {
+		if f.Credentials = f.parseCredentials(out); f.Credentials == nil {
+			return "the credential file listing stopped early"
+		}
+		return ""
+	}},
+	{"sudo-rights", sudoRightsScript, true, func(f *Facts, out string) string {
+		f.SudoRights, f.SudoDefaults = parseSudoRights(out)
+		f.markEnvEscapes()
+		return ""
+	}},
 }
 
 // collectRootPaths lists what root runs or trusts, then the owner and mode

@@ -10,6 +10,8 @@
   - `-metrics-listen` now turns on `-metrics`; alone, it used to serve nothing without a word.
 - New exit code 4: nobet could not finish (the scan history could not be read or written, output could not be written, the scan queue failed). These used to exit 2, as for a bad flag. The Docker scan loop retries on 4 and stops on 2 as before.
 - `.dockerignore` keeps package files (`.deb`, `.rpm`, `.apk`) out of the image build context.
+- Every GitHub Action in CI and the release workflow is pinned to a commit SHA, not a tag that can be moved. The releases' signatures and images are built only by code that was reviewed.
+- Dependencies: golang.org/x/crypto 0.59.0, golang.org/x/image 0.48.0.
 
 ## v0.8.0 — 2026-11-15
 

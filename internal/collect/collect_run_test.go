@@ -54,10 +54,19 @@ func TestCollectUnprivileged(t *testing.T) {
 	if f.Sudoers != nil || f.AuthKeys != nil || f.SudoRights != nil || f.Firewall != nil || f.SUID != nil {
 		t.Errorf("root-only data must stay nil without privilege: %+v", f)
 	}
-	for _, name := range []string{"sudoers", "authkeys", "sudo-rights", "firewall", "files"} {
-		if f.Errors[name] == "" {
-			t.Errorf("missing error for %s", name)
+	// Every root-only collector says why it has no data; the list of them
+	// is the table Collect runs, so a new one cannot be forgotten here.
+	names := []string{"root-jobs"}
+	for _, c := range rootCollectors {
+		names = append(names, c.name)
+	}
+	for _, name := range names {
+		if f.Errors[name] != "needs root or passwordless sudo" {
+			t.Errorf("%s: %q", name, f.Errors[name])
 		}
+	}
+	if len(names) != 15 {
+		t.Errorf("%d root-only collectors; update this count when adding one", len(names))
 	}
 	if len(f.Passwd) != 1 || f.SSHD != nil {
 		t.Errorf("passwd %+v, sshd %+v", f.Passwd, f.SSHD)
