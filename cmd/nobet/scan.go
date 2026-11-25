@@ -169,9 +169,13 @@ func runScan(args []string) int {
 	if *htmlPath != "" || *pdfPath != "" {
 		opened = openings(*histDir, results, started)
 	}
+	// A report asked for and not written is output lost: the scan exits 4
+	// (after saving and the queue), whatever it found.
+	lost := false
 	if *htmlPath != "" {
 		if err := writeReport(*htmlPath, report.HTML, results, started, owners, opened); err != nil {
 			fmt.Fprintln(os.Stderr, "nobet: writing HTML report:", err)
+			lost = true
 		} else if !*jsonOut {
 			fmt.Printf("HTML report written to %s\n", *htmlPath)
 		}
@@ -179,6 +183,7 @@ func runScan(args []string) int {
 	if *pdfPath != "" {
 		if err := writeReport(*pdfPath, report.PDF, results, started, owners, opened); err != nil {
 			fmt.Fprintln(os.Stderr, "nobet: writing PDF report:", err)
+			lost = true
 		} else if !*jsonOut {
 			fmt.Printf("PDF report written to %s\n", *pdfPath)
 		}
@@ -194,6 +199,9 @@ func runScan(args []string) int {
 	}
 	if len(claimed) > 0 {
 		finishQueue(*queueDir, claimed, results, ignored, started, "")
+	}
+	if lost {
+		return exitError
 	}
 	return exitCode(results, threshold)
 }

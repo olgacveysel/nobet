@@ -8,7 +8,7 @@
   - Over HTTPS, pages send `Strict-Transport-Security`.
   - The session and sign-in cookies are signed for their purpose, so one can never pass as the other. Existing sessions end once, after the upgrade.
   - `-metrics-listen` now turns on `-metrics`; alone, it used to serve nothing without a word.
-- New exit code 4: nobet could not finish (the scan history could not be read or written, output could not be written, the scan queue failed). These used to exit 2, as for a bad flag. The Docker scan loop retries on 4 and stops on 2 as before.
+- New exit code 4: nobet could not finish. That covers output it was asked for that could not be written (a report file, stdout), `report` or `diff` unable to read the history, and a failed scan queue. These used to exit 2, as for a bad flag, and a scan whose `-html` or `-pdf` file could not be written used to exit by its findings alone. A scan whose history cannot be saved still exits by its findings. The Docker scan loop retries on 4 and stops on 2 as before.
 - `.dockerignore` keeps package files (`.deb`, `.rpm`, `.apk`) out of the image build context.
 - Every GitHub Action in CI and the release workflow is pinned to a commit SHA, not a tag that can be moved. The releases' signatures and images are built only by code that was reviewed.
 - Dependencies: golang.org/x/crypto 0.59.0, golang.org/x/image 0.48.0.

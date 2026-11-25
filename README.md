@@ -18,7 +18,7 @@
 - **Two modes, one binary.** Scan the local machine directly, or many remote hosts in parallel over SSH. Every check works the same in both.
 - **Agentless.** For remote scans nothing is installed on your servers. Nöbet connects with your existing SSH keys and agent.
 - **Read-only.** Every remote command only reads state.
-- **Strict host keys.** Hosts must already be in `known_hosts`. Nöbet never trusts an unknown or changed host key.
+- **Strict host keys.** Hosts must already be in `known_hosts` (`~/.ssh/known_hosts`, or `-known-hosts FILE`). Nöbet never trusts an unknown or changed host key.
 - **Honest about gaps.** If a check can't run (for example, it needs root), the report says it was skipped instead of passing it silently.
 
 ## Install
@@ -73,7 +73,7 @@ Hosts are resolved through `~/.ssh/config` and `/etc/ssh/ssh_config` like `ssh` 
 
 Keys come from ssh-agent (`SSH_AUTH_SOCK`; on Windows the OpenSSH Authentication Agent service is used automatically), the config's `IdentityFile`s, and unencrypted keys in `~/.ssh` or given with `-identity`.
 
-Short forms: `nobet s` for `scan`, `nobet r` for `rootmap`, `nobet d` for `diff`, `nobet c` for `checks`, `nobet -v` for `version` and `nobet -h` for `help`. Common flags also have one-letter forms: `-j` (`-json`), `-p` (`-plain`), `-l` (`-local`), `-f` (`-fail-on`) `-t` (`-timeout`) and `-F` (`-ssh-config`).
+Short forms: `nobet s` for `scan`, `nobet r` for `rootmap`, `nobet d` for `diff`, `nobet c` for `checks`, `nobet -v` for `version` and `nobet -h` for `help`. Common flags also have one-letter forms: `-j` (`-json`), `-p` (`-plain`), `-l` (`-local`), `-f` (`-fail-on`) `-t` (`-timeout`, for connecting) and `-F` (`-ssh-config`). Each command on a host may run for a minute (`-cmd-timeout`); raise it for hosts with very large logs or file trees.
 
 ### Root access map
 
@@ -182,7 +182,7 @@ For complete remote results, the SSH user should be root or have passwordless su
 
 ## Team dashboard: `nobet-web`
 
-`nobet-web` is a separate, optional binary and package that shows the scan history to your team in a browser: fleet status with a 30-day trend, findings by check (which hosts have each problem, where it is allowlisted and why), each host's findings (with how long each has been open, and which are new in the newest scan) and scan history, every change between scans, and the root access map.
+`nobet-web` is a separate, optional binary and package that shows the scan history to your team in a browser: fleet status with a 30-day trend, findings by check (which hosts have each problem, where it is allowlisted and why), each host's findings (with how long each has been open, and which are new in the newest scan) and scan history, every change between scans, and the root access map. `nobet-web -h` lists its flags and `nobet-web -version` prints its version, which is always the same as `nobet`'s.
 
 **It is read-only by design.** It never scans, never connects to your servers and holds no SSH keys (its build is tested to contain no SSH client at all). A systemd timer runs `nobet scan` under a service account and saves to a shared history directory, which the dashboard only reads. If the dashboard were compromised, an attacker would learn your weaknesses but could not act on them; with scan requests turned on, they could at most ask for more read-only scans of hosts the scanner already knows.
 
@@ -244,7 +244,7 @@ nobet-web -listen 127.0.0.1:8080 -public-url https://nobet.example.com \
   -audit-log /var/log/nobet-web/audit.jsonl
 ```
 
-Register `https://nobet.example.com/auth/callback` as the client's redirect URI. Allow people by email, username or subject (`-allow-users`; an email counts only when the provider marks it verified, `email_verified` true, which Microsoft Entra ID never sends, so name Entra users by subject or group), or by group (`-allow-groups`, read from the `groups` claim; `-groups-claim realm_access.roles` for Keycloak roles, and add `groups` to `-oidc-scopes` where the provider needs it). nobet-web uses the authorization code flow with PKCE, checks the state and nonce, and keeps the session in a signed, HttpOnly, SameSite cookie (`__Host-` prefixed over HTTPS) for 8 hours (`-session-ttl`). Serve HTTPS with `-tls-cert`/`-tls-key`, or put a TLS proxy in front. With sign-in, Prometheus cannot scrape the main listener, so use `-metrics-listen 127.0.0.1:9187`.
+Register `https://nobet.example.com/auth/callback` as the client's redirect URI. Allow people by email, username or subject (`-allow-users`; an email counts only when the provider marks it verified, `email_verified` true, which Microsoft Entra ID never sends, so name Entra users by subject or group), or let everyone your provider authenticates in (`-allow-any-user`, for a provider only your team can use), or by group (`-allow-groups`, read from the `groups` claim; `-groups-claim realm_access.roles` for Keycloak roles, and add `groups` to `-oidc-scopes` where the provider needs it). nobet-web uses the authorization code flow with PKCE, checks the state and nonce, and keeps the session in a signed, HttpOnly, SameSite cookie (`__Host-` prefixed over HTTPS) for 8 hours (`-session-ttl`). Serve HTTPS with `-tls-cert`/`-tls-key`, or put a TLS proxy in front. With sign-in, Prometheus cannot scrape the main listener, so use `-metrics-listen 127.0.0.1:9187`.
 
 `-audit-log` appends one JSON line per page view, sign-in, refusal and sign-out, with the user, the page and the time; it works behind a proxy too (with `-user-header`).
 
@@ -322,12 +322,12 @@ Measured with 50 hosts (the size nöbet is built for): a full scan takes about 1
 | NET-002 | Medium / Low    | No host firewall filtering incoming traffic (ufw, firewalld, nftables, iptables); Medium when services are exposed. Low when a firewall is active but Docker publishes ports past it (see below) |
 | NET-003 | Critical / High / Medium | NFS exports that give away root or every account's files: root on a client is root in a writable export (`no_root_squash`, or `anonuid=0`): Critical when every host may mount it (`*`), High for named hosts. On exports every host may mount, also High for reading as root or writing as any account, Medium for reading as any account. Kerberos-only exports (`sec=krb5*`) are not reported |
 | CTR-001 | High / Medium / Low | Running Docker, podman, Incus, LXD or LXC containers, and Kubernetes pods on a node, that can take over the host: privileged (Incus/LXD `security.privileged`, LXC without `lxc.idmap`), a control socket mounted (Docker, podman, containerd, Incus, LXD, systemd, D-Bus), host paths root runs writable (`/etc/cron.d`, `/usr`, `/`…), escape capabilities (`SYS_ADMIN`, `SYS_MODULE`…), raw disks; Medium for the host's PID namespace or read access to `/etc/shadow`, SSH keys; Low without seccomp or AppArmor |
-| FS-001  | Critical / High / Medium | SUID on programs that spawn a root shell (bash, find, vim, python…), SUID files in /tmp or home directories, SUID files not owned by any package |
-| FS-002  | High            | World-writable files, or world-writable directories without the sticky bit, in /etc, /usr, /bin, /sbin, /opt |
-| FS-003  | Critical / High | Files root runs or trusts that other accounts can change, configuration that makes root run commands (PAM, sshd, polkit, APT, modprobe, update-motd), and the login files of accounts that can become root: Critical when anyone can, High when named accounts can (see below) |
+| FS-001  | Critical / High / Medium / Info | SUID on programs that spawn a root shell (bash, find, vim, python…), SUID files in /tmp or home directories, SUID files not owned by any package |
+| FS-002  | High / Info     | World-writable files, or world-writable directories without the sticky bit, in /etc, /usr, /bin, /sbin, /opt |
+| FS-003  | Critical / High / Info | Files root runs or trusts that other accounts can change, configuration that makes root run commands (PAM, sshd, polkit, APT, modprobe, update-motd), and the login files of accounts that can become root: Critical when anyone can, High when named accounts can (see below) |
 | FS-004  | Critical / High / Medium | Private keys other accounts can read: accounts' SSH keys, sshd's host keys, TLS keys. High when every account can, Medium for a group or accounts an ACL names; one step higher when the key logs in to a root-capable account on the host |
 | FS-005  | High            | Credential files every account can read: `.pgpass`, `.my.cnf`, `.netrc`, `.git-credentials`, `~/.aws/credentials`, Docker registry auth, `~/.kube/config`, GitHub CLI, npm, PyPI, Vault, S3, rclone and Google Cloud credentials, application `.env` files and WordPress configs, and password hashes (`/etc/shadow`, `/etc/gshadow`, their backups, `/etc/security/opasswd`, hashes left in `/etc/passwd`). Only files whose content holds a secret count; nothing of it leaves the host |
-| FS-006  | Critical / High / Medium | File capabilities that give root (`setcap cap_setuid+ep` on python): Critical on a program that can run anything (interpreters, shells, editors, find, tar…) with a capability that makes root; High on such a program that can read every file (`cap_dac_read_search`), and on root-level capabilities in /tmp or home directories; Medium on root-level capabilities of programs no package owns |
+| FS-006  | Critical / High / Medium / Info | File capabilities that give root (`setcap cap_setuid+ep` on python): Critical on a program that can run anything (interpreters, shells, editors, find, tar…) with a capability that makes root; High on such a program that can read every file (`cap_dac_read_search`), and on root-level capabilities in /tmp or home directories; Medium on root-level capabilities of programs no package owns |
 | KRN-001 | Medium / Low    | Kernel hardening switched off: ASLR (`kernel.randomize_va_space`), symlink and hardlink protection, readable setuid core dumps (`fs.suid_dumpable = 1`), SYN cookies, source routing. Only settings whose defaults are safe on every supported distribution are checked |
 | UPD-001 | High / Medium   | Pending security updates (apt, dnf, dnf5, yum, zypper); High when the vendor rates any as critical or important. apk (Alpine) does not label security fixes, so there every pending update is reported, as Medium |
 | UPD-002 | Medium          | Reboot required: newer kernel installed than running, or a reboot flag file exists |
@@ -377,7 +377,7 @@ UPD-004 knows Ubuntu, Debian (including its free LTS period) and Raspbian, RHEL,
 | 1 | At least one finding at or above `-fail-on` (default: high) |
 | 2 | Usage error: a bad flag, or an allowlist or keys file nobet cannot read |
 | 3 | No failing findings, but some hosts could not be scanned |
-| 4 | nobet could not finish: the scan history could not be read or written, output could not be written, or the scan queue failed |
+| 4 | nobet could not finish: output it was asked for could not be written (a report file, stdout), a command that works on the history (`report`, `diff`) could not read it, or the scan queue failed. A scan whose history cannot be saved still exits by its findings, with a note on stderr |
 
 ## Known limitations
 
@@ -470,9 +470,13 @@ internal/allow/     allowlist of reviewed findings
 internal/store/     saved scan history
 internal/drift/     changes between scans
 internal/brand/     terminal logo
-internal/report/    text, JSON and HTML output
+internal/report/    text, JSON, HTML and PDF output
 internal/tui/       interactive terminal UI (Bubble Tea)
 internal/inventory/ host list parsing
+internal/keys/      keys file: who owns which SSH key
+internal/queue/     scan requests from the dashboard, for nobet scan -queue
+internal/textclean/ control characters out of text from hosts
+internal/buildinfo/ the binaries' version
 internal/sshconf/   ~/.ssh/config resolution (aliases, ProxyJump)
 contrib/systemd/    units for a nightly scan and the dashboard
 contrib/docker/     the scanner image's scan loop (Dockerfile and compose.yaml are at the top level)

@@ -63,6 +63,17 @@ func TestReportFromHistory(t *testing.T) {
 	if code := runReport([]string{"-history-dir", dir, "-pdf", pdf, "-host", "nomatch*"}); code != exitUsage {
 		t.Errorf("no matching host: exit %d", code)
 	}
+	// A report that cannot be written is output lost: exit 4, not 2.
+	missing := filepath.Join(out, "no-such-dir", "r.pdf")
+	if code := runReport([]string{"-history-dir", dir, "-pdf", missing}); code != exitError {
+		t.Errorf("unwritable report: exit %d, want %d", code, exitError)
+	}
+	// A history that cannot be read (a file where the directory should be).
+	notDir := filepath.Join(out, "a-file")
+	os.WriteFile(notDir, nil, 0o600)
+	if code := runReport([]string{"-history-dir", notDir, "-pdf", pdf}); code != exitError {
+		t.Errorf("unreadable history: exit %d, want %d", code, exitError)
+	}
 }
 
 func TestParseSince(t *testing.T) {
