@@ -172,6 +172,12 @@ func WarnOnce(printf func(format string, a ...any)) func(path, why string) {
 func Walk(dir string, fn func(Snapshot) error) error {
 	entries, err := os.ReadDir(dir)
 	if errors.Is(err, fs.ErrNotExist) {
+		// No directory, no history; but a file in its place is a mistake.
+		// Linux says so (not a directory), Windows reports the path as
+		// missing, so ask once more.
+		if st, serr := os.Stat(dir); serr == nil && !st.IsDir() {
+			return fmt.Errorf("the scan history %s is a file, not a directory", dir)
+		}
 		return nil
 	}
 	if err != nil {
